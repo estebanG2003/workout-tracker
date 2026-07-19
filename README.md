@@ -2,6 +2,8 @@
 
 A small, personal, mobile-first push/pull/legs workout tracker PWA. No framework, no build step, no backend — plain HTML/CSS/JS with `localStorage` for persistence. Same architecture as the [Grocery List](../Grocery%20List) app.
 
+**Live:** https://estebang2003.github.io/workout-tracker/ — open on your phone, Share → *Add to Home Screen* to install.
+
 ## How it works
 
 - **Start a workout** — pick Push, Pull, or Legs.
