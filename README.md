@@ -11,11 +11,11 @@ A small, personal, mobile-first push/pull/legs workout tracker PWA. No framework
 - Tap an exercise to log a set: **+2.5 / +5 / +10** weight nudges and a reps stepper, both pre-filled from last time (or from the set you just logged this session, once you've logged one). Tap **Log Set** to record it; log as many sets as you did.
 - **Add exercise** lets you log something outside the seeded list — it's remembered for that split going forward.
 - **Finish Workout** saves the session. **History** shows every past session, expandable to the full set-by-set detail — the same data "Last time" reads from.
-- **Export** (top of History) downloads a `workout-export-YYYY-MM-DD.md` file — vault-note-ready markdown, one `## date — Split` block per session with exercises as bullets. Only exports sessions logged since your last export (tracked separately from the sessions themselves), so repeated exports never duplicate — paste-append the file's contents into `Life/Health.md` or wherever you're keeping the log. Says "No new sessions to export" if you export twice with nothing new in between.
+- **Export** (top of History) downloads a `workout-export-YYYY-MM-DD.md` file — ready-to-paste markdown, one `## date — Split` block per session with exercises as bullets. Only exports sessions logged since your last export (tracked separately from the sessions themselves), so repeated exports never duplicate — paste-append the file's contents into whatever notes app or log you're keeping. Says "No new sessions to export" if you export twice with nothing new in between.
 
 ## Deliberately out of scope (v1)
 
-- No *automatic* vault / `Life/Health.md` integration — export is a manual download-then-paste step, by design (kept the app standalone, no vault write access).
+- No *automatic* integration with any notes app — export is a manual download-then-paste step, by design (kept the app standalone, no external write access).
 - No rest timers, RPE/RIR, or auto progression suggestions.
 - No editing/deleting a set once logged.
 - No accounts, no cloud sync — one device, `localStorage` only.
@@ -59,4 +59,4 @@ chrome --headless=new --dump-dom http://localhost:8731/test-ui.html
 
 ## Design spec
 
-Full design rationale and the answers behind each scope decision (why weight×reps but no sets-count limit, why standalone instead of Health.md-integrated, why quick-tap reps instead of a number field) live in `docs/superpowers/specs/2026-07-18-workout-tracker-design.md`.
+Full design rationale and the answers behind each scope decision (why weight×reps but no sets-count limit, why standalone instead of notes-app-integrated, why quick-tap reps instead of a number field) live in `docs/superpowers/specs/2026-07-18-workout-tracker-design.md`.

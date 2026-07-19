@@ -1,12 +1,12 @@
 # Workout Tracker — Design Spec
 
-_Status: approved 2026-07-18. Source: `Claude Requests.md` → Health / Training todo (captured 2026-07-15), refined via brainstorm same day._
+_Status: approved 2026-07-18. Scoped and refined via a brainstorming session the same day._
 
 ## Purpose
 
-Esteban currently plans each exercise's weight/reps for a session based on what he did last time, then logs what he actually did — on paper or from memory. This app replaces that with a quick-add mobile tool: shows last time's performance per exercise as the reference, lets him log actual sets (weight × reps) with fast tap controls, no typing mid-workout.
+The user currently plans each exercise's weight/reps for a session based on what they did last time, then logs what they actually did — on paper or from memory. This app replaces that with a quick-add mobile tool: shows last time's performance per exercise as the reference, lets them log actual sets (weight × reps) with fast tap controls, no typing mid-workout.
 
-**Explicit scope cap (his words):** "a really quick and simple app, not a whole project." Not a WAT project. No backend, no accounts, no vault integration.
+**Explicit scope cap (the user's words):** "a really quick and simple app, not a whole project." Not scaffolded as a larger structured project. No backend, no accounts, no external notes-app integration.
 
 ## Architecture
 
@@ -17,9 +17,9 @@ Standalone static PWA, following the same proven pattern as `Agentic Workflows/G
 - `index.html` — markup/styles/view, all inline
 - `sw.js` + `manifest.webmanifest` + `icons/` — installable, offline-capable PWA
 - `localStorage` for persistence
-- Own git repo at `Agentic Workflows/Workout Tracker/`, independent of the vault
+- Own git repo, independent of any personal notes system
 
-**Explicitly not built:** vault/Health.md integration. Standalone only, per his answer during brainstorming — he updates Health.md by hand if he ever wants a summary there. This is a deliberate deferral, not an oversight, matching the same "seam for later, not built now" pattern Grocery List used for its meal-plan integration.
+**Explicitly not built:** integration with any external notes app. Standalone only, per the user's answer during brainstorming — they update their own tracking notes by hand if they ever want a summary there. This is a deliberate deferral, not an oversight, matching the same "seam for later, not built now" pattern Grocery List used for its meal-plan integration.
 
 ## Data Model
 
@@ -34,7 +34,7 @@ ExerciseEntry:  { exercise, sets: [{ weight, reps }] }
   - **Push:** Bench Press, Overhead Press, Incline Press, Triceps Pushdown, Dips
   - **Pull:** Pull-ups, Barbell Row, Lat Pulldown, Face Pull, Bicep Curl
   - **Legs:** Squat, RDL, Leg Press, Hip Thrust, Leg Curl
-  - (Matches the current push/pull/legs split in `Life/Health.md`.)
+  - (Matches the user's existing push/pull/legs training split.)
 
 ## Screens / Flow
 
@@ -57,7 +57,7 @@ Reuse Grocery List's look and feel directly rather than inventing a new one — 
 - **Theme color** picker — same set of preset accent colors (+ custom RGB picker) as Grocery List, reusing its `hexToRgb`/`rgbToHex`/`derivePreset`/`hsvToRgb`/`rgbToHsv` color-math helpers from `model.js` as-is.
 - **Appearance** — System / Light / Dark toggle, same mechanism (`prefers-color-scheme` default, explicit override persisted to `localStorage`).
 
-No new settings beyond theme + appearance — no unit toggles (lbs assumed, matching `Life/Health.md`), no account/export settings, keeping the "quick and simple" scope intact.
+No new settings beyond theme + appearance — no unit toggles (lbs assumed, matching the user's existing training log), no account/export settings, keeping the "quick and simple" scope intact.
 
 ## Error Handling
 
@@ -73,18 +73,18 @@ No new settings beyond theme + appearance — no unit toggles (lbs assumed, matc
 
 ## Out of Scope (v1)
 
-- Automatic vault/Health.md integration — resolved via manual export instead, see Amendment below
+- Automatic integration with any external notes app — resolved via manual export instead, see Amendment below
 - Rest timers, RPE/RIR tracking, progression suggestions/auto-increment logic
 - Multi-user, cloud sync, auth
 - Editing/deleting a set after logging (can be added later if it turns out to matter in real use)
 
 ## Amendment (2026-07-18, same day): Markdown export
 
-After the initial build, Esteban asked for an easy way to get history into the vault. Answered with a manual export rather than reopening the standalone-vs-integrated decision:
+After the initial build, the user asked for an easy way to get history into their own notes. Answered with a manual export rather than reopening the standalone-vs-integrated decision:
 
 - **History screen** gets an **Export** button showing a pending count (e.g. "Export (2 new)").
 - Downloads `workout-export-YYYY-MM-DD.md` — one `## YYYY-MM-DD — Split` block per session, exercises as `- Name: weight×reps, weight×reps` bullets. Local calendar date (not UTC) to avoid a midnight-boundary shift.
 - **Only sessions since the last export** are included — a `workout-last-export-v1` timestamp in `localStorage`, separate from session data, advances on every successful export. Exporting twice with nothing new shows an alert instead of an empty/duplicate file.
-- Still standalone: this is a manual download-then-paste step, not a live vault write. Keeps the app's `localStorage`-only architecture intact — no new capability for the app to reach outside itself.
+- Still standalone: this is a manual download-then-paste step, not a live write to an external system. Keeps the app's `localStorage`-only architecture intact — no new capability for the app to reach outside itself.
 - `formatSets` moved from `index.html` into `model.js` (was duplicated) so the export markdown and the on-screen summaries are guaranteed to render sets identically.
 - Model additions (`localDateStr`, `sessionsAfter`, `toMarkdown`, `createExportTracker`) are pure/injectable and covered by 18 new `test-model.js` checks (61 total). The view's download step has a `window.__exportHook` test seam so `test-ui.html` can verify the real click-through flow without triggering an actual browser file-save dialog in headless Chrome.

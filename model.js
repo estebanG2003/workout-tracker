@@ -155,7 +155,7 @@
   const pad2 = n => String(n).padStart(2, '0');
   /* Local (not UTC) Y-M-D — a session's `date` is a local Date.now() timestamp,
      so formatting via toISOString (UTC) could shift it to the wrong calendar
-     day near midnight. Matches the vault's "## YYYY-MM-DD — Label" convention. */
+     day near midnight. Matches a "## YYYY-MM-DD — Label" note convention. */
   function localDateStr(ts) {
     const d = new Date(ts);
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -167,7 +167,7 @@
     return sessions.filter(s => s.date > (ts || 0));
   }
 
-  /* Markdown export — a vault-note-ready block per session, oldest first (a
+  /* Markdown export — a paste-ready block per session, oldest first (a
      natural chronological log to append). Entries only exist for exercises
      that actually had a set logged, so nothing "empty" shows up. */
   function toMarkdown(sessions) {
@@ -180,7 +180,7 @@
   }
 
   /* Tracks the timestamp of the last successful export, so re-exporting only
-     picks up sessions finished since then — no manual dedup in the vault. */
+     picks up sessions finished since then — no manual dedup of duplicates. */
   function createExportTracker(storage) {
     const EKEY = 'workout-last-export-v1';
     return {
