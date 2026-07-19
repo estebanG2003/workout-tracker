@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Workout" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <title>Workout</title>
+  <style>
+    :root {
+      --bg: #f6f7f8;
+      --surface: #ffffff;
+      --surface-2: #f0f2f4;
+      --text: #14181d;
+      --text-dim: #66707a;
+      --border: #e4e8ec;
+      --accent: #2563eb;       /* owned by JS (theme picker); this is the no-JS fallback */
+      --accent-dim: #dbeafe;
+      --danger: #dc2626;
+      --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+      --radius: 14px;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    :root[data-theme="dark"] {
+      --bg: #0f1216; --surface: #171b21; --surface-2: #1e242c; --text: #e8ecef;
+      --text-dim: #8a949e; --border: #262d36; --danger: #f87171;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 10px rgba(0,0,0,.25);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0f1216; --surface: #171b21; --surface-2: #1e242c; --text: #e8ecef;
+        --text-dim: #8a949e; --border: #262d36; --danger: #f87171;
+        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 10px rgba(0,0,0,.25);
+      }
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+      min-height: 100vh; overscroll-behavior-y: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    }
+    input, textarea { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
+    .app { max-width: 640px; margin: 0 auto; padding-bottom: calc(40px + var(--safe-bottom)); }
+
+    header {
+      position: sticky; top: 0; z-index: 20; background: var(--bg);
+      padding: calc(14px + var(--safe-top)) 16px 8px; border-bottom: 1px solid var(--border);
+    }
+    .title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -.02em; }
+    .head-left, .head-right { display: flex; align-items: center; gap: 10px; }
+    .icon-btn {
+      border: 1px solid var(--border); background: var(--surface); color: var(--text-dim);
+      width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; cursor: pointer;
+    }
+    .icon-btn:active { background: var(--surface-2); }
+    .icon-btn svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 2; fill: none; }
+    .text-btn {
+      border: none; background: var(--accent); color: #fff; padding: 9px 16px; border-radius: 10px;
+      font-size: 14.5px; font-weight: 600; cursor: pointer;
+    }
+    .text-btn:active { opacity: .85; }
+    /* .icon-btn/.text-btn set `display` unconditionally, which otherwise beats
+       the UA [hidden] rule at equal specificity (author stylesheet wins) —
+       same class of bug as Grocery List's `.reset[hidden]` fix. */
+    .icon-btn[hidden], .text-btn[hidden] { display: none; }
+
+    main { padding: 16px 14px 0; }
+
+    /* ---------- Home ---------- */
+    .home { padding: 30px 6px 0; text-align: center; }
+    .home-sub { color: var(--text-dim); font-size: 15px; margin: 0 0 22px; }
+    .split-grid { display: flex; flex-direction: column; gap: 12px; }
+    .split-btn {
+      display: flex; align-items: center; gap: 14px; border: 1px solid var(--border); background: var(--surface);
+      border-radius: var(--radius); padding: 20px 22px; box-shadow: var(--shadow); cursor: pointer;
+      font-size: 19px; font-weight: 700; color: var(--text); text-align: left;
+    }
+    .split-btn:active { background: var(--surface-2); }
+    .split-btn .emoji { font-size: 26px; }
+    .history-link {
+      display: block; width: 100%; margin-top: 26px; border: none; background: none; color: var(--accent);
+      font-size: 15px; font-weight: 600; padding: 12px; cursor: pointer;
+    }
+
+    /* ---------- Active session ---------- */
+    ul.ex-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .ex-row {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow); overflow: hidden;
+    }
+    .ex-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; cursor: pointer; }
+    .ex-name { font-size: 16px; font-weight: 600; }
+    .ex-row.done .ex-name::before { content: '✓ '; color: var(--accent); }
+    .ex-summary { font-size: 13px; color: var(--text-dim); text-align: right; flex: 0 1 auto; }
+    .ex-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+    .ex-ref { font-size: 13px; color: var(--text-dim); padding: 12px 0 4px; }
+    .ex-ref b { color: var(--text); font-weight: 600; }
+    .ctrl-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+    .ctrl-label { width: 56px; flex: 0 0 auto; font-size: 13px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+    .nudge-btns { display: flex; gap: 6px; flex: 1 1 auto; }
+    .nudge-btns button {
+      flex: 1; border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+      padding: 10px 4px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .nudge-btns button:active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .cur-val {
+      min-width: 58px; flex: 0 0 auto; text-align: center; font-size: 16px; font-weight: 700;
+      font-variant-numeric: tabular-nums; background: var(--surface-2); border-radius: 10px; padding: 10px 4px;
+    }
+    .stepper { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; }
+    .stepper button {
+      border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+      width: 40px; height: 40px; border-radius: 10px; font-size: 19px; font-weight: 700; cursor: pointer;
+    }
+    .stepper button:active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .log-btn {
+      display: block; width: 100%; margin-top: 16px; border: none; background: var(--accent); color: #fff;
+      padding: 13px; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer;
+    }
+    .log-btn:active { opacity: .85; }
+    .list-add {
+      display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin: 16px 0 6px;
+      border: 1.5px dashed var(--border); background: transparent; color: var(--text-dim);
+      border-radius: var(--radius); padding: 14px; font-size: 15px; font-weight: 500; cursor: pointer;
+    }
+    .list-add:active { background: var(--surface-2); }
+    .list-add span.plus { font-size: 20px; line-height: 1; }
+
+    /* ---------- History ---------- */
+    .session-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .session-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+    .session-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; cursor: pointer; }
+    .session-split { font-size: 16px; font-weight: 700; text-transform: capitalize; }
+    .session-date { font-size: 13px; color: var(--text-dim); }
+    .session-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+    .session-detail { padding: 0 16px 14px; border-top: 1px solid var(--border); }
+    .sd-entry { padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .sd-entry:last-child { border-bottom: none; }
+    .sd-ex { font-size: 14.5px; font-weight: 600; margin-bottom: 3px; }
+    .sd-sets { font-size: 13.5px; color: var(--text-dim); }
+
+    .empty { text-align: center; color: var(--text-dim); padding: 60px 20px; }
+    .empty .big { font-size: 44px; margin-bottom: 10px; }
+
+    /* ---------- Settings sheet (reused pattern from Grocery List) ---------- */
+    .overlay { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.4); display: flex; align-items: flex-end; justify-content: center; }
+    .overlay[hidden] { display: none; }
+    .sheet {
+      width: 100%; max-width: 640px; background: var(--bg); border-radius: 20px 20px 0 0;
+      padding: 8px 20px calc(24px + var(--safe-bottom)); max-height: 88vh; overflow-y: auto;
+      animation: slideUp .22s ease;
+    }
+    @keyframes slideUp { from { transform: translateY(30px); opacity: .6 } to { transform: none; opacity: 1 } }
+    .sheet-grip { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 8px auto 4px; }
+    .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 12px; }
+    .sheet-head h2 { margin: 0; font-size: 20px; }
+    .sheet-head button { border: none; background: var(--surface-2); color: var(--text); width: 34px; height: 34px; border-radius: 999px; font-size: 16px; cursor: pointer; }
+    .set-section { padding: 14px 0; border-top: 1px solid var(--border); }
+    .set-section > label { display: block; font-size: 13px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+    .segment { display: flex; background: var(--surface-2); border-radius: 12px; padding: 4px; gap: 4px; }
+    .segment button { flex: 1; border: none; background: none; color: var(--text-dim); padding: 10px; border-radius: 9px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .segment button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+    .swatches { display: flex; flex-wrap: wrap; gap: 14px; }
+    .swatch { width: 44px; height: 44px; border-radius: 999px; border: 3px solid transparent; cursor: pointer; position: relative; }
+    .swatch.on { border-color: var(--text); }
+    .swatch.on::after { content: '✓'; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 18px; }
+    .remove-custom { display: block; width: 100%; margin-top: 12px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); padding: 9px; border-radius: 10px; font-size: 13.5px; font-weight: 500; cursor: pointer; }
+    .remove-custom[hidden] { display: none; }
+    .sv-square {
+      position: relative; width: 100%; height: 168px; border-radius: 12px; border: 1px solid var(--border);
+      touch-action: none; cursor: crosshair; overflow: hidden;
+      background-image: linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, rgba(255,255,255,0));
+    }
+    .sv-handle {
+      position: absolute; width: 22px; height: 22px; border-radius: 50%; border: 3px solid #fff;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 1px 3px rgba(0,0,0,.4); transform: translate(-50%, -50%); pointer-events: none;
+    }
+    .hue-slider {
+      width: 100%; height: 24px; margin-top: 14px; -webkit-appearance: none; appearance: none;
+      border-radius: 999px; touch-action: none; cursor: pointer;
+      background: linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+    }
+    .hue-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 2px solid rgba(0,0,0,.3); box-shadow: 0 1px 3px rgba(0,0,0,.3); cursor: pointer; }
+    .hue-slider::-moz-range-thumb { width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 2px solid rgba(0,0,0,.3); cursor: pointer; }
+    .picker-foot { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+    .rgb-preview { width: 46px; height: 46px; border-radius: 12px; border: 1px solid var(--border); flex: 0 0 auto; }
+    .pick-hex { font-variant-numeric: tabular-nums; font-size: 15px; color: var(--text-dim); font-weight: 700; letter-spacing: .04em; }
+    .add-preset-btn { width: 100%; margin-top: 14px; border: none; background: var(--accent); color: #fff; padding: 12px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .danger-btn { width: 100%; border: 1px solid var(--danger); background: transparent; color: var(--danger); padding: 13px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .danger-btn:active { background: var(--danger); color: #fff; }
+    .set-hint { font-size: 12.5px; color: var(--text-dim); margin: 8px 2px 0; line-height: 1.35; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="title-row">
+        <div class="head-left">
+          <button class="icon-btn" id="backBtn" aria-label="back" hidden>
+            <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <h1 id="screenTitle">Workout</h1>
+        </div>
+        <div class="head-right">
+          <button class="text-btn" id="finishBtn" hidden>Finish</button>
+          <button class="icon-btn" id="settingsBtn" aria-label="settings">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="screen"></main>
+  </div>
+
+  <!-- Settings sheet -->
+  <div class="overlay" id="settings" hidden>
+    <div class="sheet" role="dialog" aria-label="Settings">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head"><h2>Settings</h2><button id="closeSettings" aria-label="close">✕</button></div>
+
+      <div class="set-section">
+        <label>Appearance</label>
+        <div class="segment" id="appearance">
+          <button data-v="system">System</button>
+          <button data-v="light">Light</button>
+          <button data-v="dark">Dark</button>
+        </div>
+      </div>
+
+      <div class="set-section">
+        <label>Theme color</label>
+        <div class="swatches" id="swatches"></div>
+        <button class="remove-custom" id="removeCustom" hidden>Remove this custom color</button>
+      </div>
+
+      <div class="set-section">
+        <label>Custom color</label>
+        <div class="sv-square" id="svSquare"><div class="sv-handle" id="svHandle"></div></div>
+        <input type="range" min="0" max="360" id="hueIn" class="hue-slider" aria-label="hue" />
+        <div class="picker-foot">
+          <div class="rgb-preview" id="rgbPreview"></div>
+          <div class="pick-hex" id="pickHex">#000000</div>
+        </div>
+        <button class="add-preset-btn" id="addPreset">Use color &amp; save as preset</button>
+      </div>
+
+      <div class="set-section">
+        <label>Danger zone</label>
+        <button class="danger-btn" id="clearHistory">Clear all workout history</button>
+        <p class="set-hint">Removes every saved session. This can't be undone.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="model.js"></script>
+  <script>
+  /* View layer. Core data model lives in model.js (shared with tests). */
+  const { SPLITS, createStore, createExercises, sortSessionsDesc,
+          hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv } = WorkoutModel;
+  const store = createStore(localStorage);
+  const exercises = createExercises(localStorage);
+  store.load();
+
+  const SPLIT_LABEL = { push: 'Push', pull: 'Pull', legs: 'Legs' };
+  const SPLIT_EMOJI = { push: '💪', pull: '🏋️', legs: '🦵' };
+
+  /* ---------- Settings: theme color + light/dark (reused pattern from Grocery List) ---------- */
+  const PALETTE = {
+    blue:   { light: ['#2563eb', '#dbeafe'], dark: ['#3b82f6', '#17233f'] },
+    green:  { light: ['#16a34a', '#dcfce7'], dark: ['#22c55e', '#14311f'] },
+    teal:   { light: ['#0d9488', '#ccfbf1'], dark: ['#14b8a6', '#0f302c'] },
+    purple: { light: ['#7c3aed', '#ede9fe'], dark: ['#8b5cf6', '#241a3d'] },
+    pink:   { light: ['#db2777', '#fce7f3'], dark: ['#ec4899', '#3b1d2c'] },
+    orange: { light: ['#ea580c', '#ffedd5'], dark: ['#f97316', '#3a2213'] },
+  };
+  const SKEY = 'workout-settings-v1';
+  let settings = { accent: 'blue', appearance: 'system', customColors: [] };
+  try { Object.assign(settings, JSON.parse(localStorage.getItem(SKEY) || '{}')); } catch {}
+  if (!Array.isArray(settings.customColors)) settings.customColors = [];
+
+  const customPreset = hex => { const [r, g, b] = hexToRgb(hex); return derivePreset(r, g, b); };
+  function allPresets() {
+    const out = {};
+    Object.keys(PALETTE).forEach(k => out[k] = PALETTE[k]);
+    settings.customColors.forEach(hex => out[hex] = customPreset(hex));
+    return out;
+  }
+  if (!allPresets()[settings.accent]) settings.accent = 'blue';
+
+  const darkMq = matchMedia('(prefers-color-scheme: dark)');
+  const isDark = () => settings.appearance === 'dark' || (settings.appearance === 'system' && darkMq.matches);
+
+  function applySettings() {
+    const root = document.documentElement;
+    if (settings.appearance === 'system') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', settings.appearance);
+    const preset = allPresets()[settings.accent] || PALETTE.blue;
+    const [accent, dim] = preset[isDark() ? 'dark' : 'light'];
+    root.style.setProperty('--accent', accent);
+    root.style.setProperty('--accent-dim', dim);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', isDark() ? '#0f1216' : accent);
+  }
+  function saveSettings() { localStorage.setItem(SKEY, JSON.stringify(settings)); }
+  darkMq.addEventListener('change', () => { if (settings.appearance === 'system') applySettings(); });
+  applySettings();
+
+  /* ---------- App state ---------- */
+  let view = 'home';           // 'home' | 'active' | 'history'
+  let activeSession = null;    // in-progress session object (not yet saved)
+  let expandedExercise = null; // name of exercise expanded in the active view
+  let draft = {};              // { [exercise]: { weight, reps } } — pending values before Log Set
+  let expandedHistoryId = null;
+
+  const screenEl = document.getElementById('screen');
+  const titleEl = document.getElementById('screenTitle');
+  const backBtn = document.getElementById('backBtn');
+  const finishBtn = document.getElementById('finishBtn');
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+  function formatSets(sets) {
+    return sets.map(s => `${s.weight}×${s.reps}`).join(', ');
+  }
+  function formatDate(ts) {
+    return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function draftFor(name) {
+    if (!draft[name]) draft[name] = store.defaultsFor(activeSession, name);
+    return draft[name];
+  }
+
+  /* ---------- Render dispatch ---------- */
+  function render() {
+    backBtn.hidden = view === 'home';
+    finishBtn.hidden = view !== 'active';
+    if (view === 'home') { titleEl.textContent = 'Workout'; renderHome(); }
+    else if (view === 'active') { titleEl.textContent = SPLIT_LABEL[activeSession.split]; renderActive(); }
+    else if (view === 'history') { titleEl.textContent = 'History'; renderHistory(); }
+  }
+
+  function renderHome() {
+    screenEl.innerHTML = `
+      <div class="home">
+        <p class="home-sub">Start a workout</p>
+        <div class="split-grid">
+          ${SPLITS.map(s => `<button class="split-btn" data-split="${s}"><span class="emoji">${SPLIT_EMOJI[s]}</span><span>${SPLIT_LABEL[s]}</span></button>`).join('')}
+        </div>
+        <button class="history-link" id="historyLink">View history</button>
+      </div>`;
+    screenEl.querySelectorAll('.split-btn').forEach(b => {
+      b.onclick = () => {
+        activeSession = store.startSession(b.dataset.split);
+        expandedExercise = null; draft = {};
+        view = 'active'; render();
+      };
+    });
+    document.getElementById('historyLink').onclick = () => { view = 'history'; render(); };
+  }
+
+  function renderActive() {
+    const list = exercises.forSplit(activeSession.split);
+    screenEl.innerHTML = `
+      <ul class="ex-list" id="exList"></ul>
+      <button class="list-add" id="addExerciseBtn"><span class="plus">+</span><span>Add exercise</span></button>`;
+    const exListEl = document.getElementById('exList');
+    list.forEach(name => exListEl.appendChild(renderExerciseRow(name)));
+    document.getElementById('addExerciseBtn').onclick = () => {
+      const name = window.prompt('Exercise name:');
+      if (name === null) return;
+      const added = exercises.addCustom(activeSession.split, name);
+      if (added) { expandedExercise = added; render(); }
+    };
+  }
+
+  function renderExerciseRow(name) {
+    const entry = activeSession.entries.find(e => e.exercise === name);
+    const todaySets = entry ? entry.sets : [];
+    const lastSets = store.lastSetsFor(name, activeSession.id);
+    const expanded = expandedExercise === name;
+
+    const li = document.createElement('li');
+    li.className = 'ex-row' + (expanded ? ' expanded' : '') + (todaySets.length ? ' done' : '');
+
+    const head = document.createElement('div');
+    head.className = 'ex-head';
+    head.innerHTML = `<span class="ex-name">${escapeHtml(name)}</span>
+      <span class="ex-summary">${todaySets.length ? formatSets(todaySets) : (lastSets.length ? 'Last: ' + formatSets(lastSets) : 'New')}</span>`;
+    head.onclick = () => { expandedExercise = expanded ? null : name; render(); };
+    li.appendChild(head);
+
+    if (expanded) {
+      const d = draftFor(name);
+      const body = document.createElement('div');
+      body.className = 'ex-body';
+      body.innerHTML = `
+        <div class="ex-ref">Last time: <b>${lastSets.length ? formatSets(lastSets) : 'No previous data'}</b></div>
+        ${todaySets.length ? `<div class="ex-ref">Today: <b>${formatSets(todaySets)}</b></div>` : ''}
+        <div class="ctrl-row">
+          <span class="ctrl-label">Weight</span>
+          <div class="nudge-btns">
+            <button data-wadj="2.5">+2.5</button>
+            <button data-wadj="5">+5</button>
+            <button data-wadj="10">+10</button>
+          </div>
+          <span class="cur-val" id="wVal">${d.weight}</span>
+        </div>
+        <div class="ctrl-row">
+          <span class="ctrl-label">Reps</span>
+          <div class="stepper">
+            <button data-radj="-1">−</button>
+            <span class="cur-val" id="rVal">${d.reps}</span>
+            <button data-radj="1">+</button>
+          </div>
+        </div>
+        <button class="log-btn" id="logBtn">Log Set</button>`;
+      li.appendChild(body);
+
+      body.querySelectorAll('[data-wadj]').forEach(b => {
+        b.onclick = () => {
+          d.weight = Math.round((d.weight + parseFloat(b.dataset.wadj)) * 10) / 10;
+          body.querySelector('#wVal').textContent = d.weight;
+        };
+      });
+      body.querySelectorAll('[data-radj]').forEach(b => {
+        b.onclick = () => {
+          d.reps = Math.max(0, d.reps + parseInt(b.dataset.radj, 10));
+          body.querySelector('#rVal').textContent = d.reps;
+        };
+      });
+      body.querySelector('#logBtn').onclick = () => {
+        const set = store.logSet(activeSession, name, d.weight, d.reps);
+        if (set) { delete draft[name]; render(); }
+      };
+    }
+    return li;
+  }
+
+  function renderHistory() {
+    const sessions = sortSessionsDesc(store.sessions);
+    if (!sessions.length) {
+      screenEl.innerHTML = `<div class="empty"><div class="big">🏋️</div>No workouts logged yet.</div>`;
+      return;
+    }
+    screenEl.innerHTML = `<ul class="session-list" id="sessList"></ul>`;
+    const listEl = document.getElementById('sessList');
+    sessions.forEach(s => listEl.appendChild(renderSessionCard(s)));
+  }
+
+  function renderSessionCard(s) {
+    const li = document.createElement('li');
+    li.className = 'session-card';
+    const totalSets = s.entries.reduce((n, e) => n + e.sets.length, 0);
+    const head = document.createElement('div');
+    head.className = 'session-head';
+    head.innerHTML = `<span class="session-split">${SPLIT_EMOJI[s.split]} ${SPLIT_LABEL[s.split]}</span>
+      <span class="session-meta"><span class="session-date">${formatDate(s.date)}</span><span class="session-date">${totalSets} set${totalSets === 1 ? '' : 's'}</span></span>`;
+    head.onclick = () => { expandedHistoryId = expandedHistoryId === s.id ? null : s.id; render(); };
+    li.appendChild(head);
+    if (expandedHistoryId === s.id) {
+      const detail = document.createElement('div');
+      detail.className = 'session-detail';
+      detail.innerHTML = s.entries.map(e => `
+        <div class="sd-entry"><div class="sd-ex">${escapeHtml(e.exercise)}</div><div class="sd-sets">${formatSets(e.sets)}</div></div>`).join('')
+        || '<div class="sd-entry"><div class="sd-sets">No sets logged.</div></div>';
+      li.appendChild(detail);
+    }
+    return li;
+  }
+
+  /* ---------- Header actions ---------- */
+  backBtn.onclick = () => {
+    if (view === 'active') {
+      if (store.totalSets(activeSession) > 0 && !window.confirm('Discard this workout? Logged sets will be lost.')) return;
+      activeSession = null;
+    }
+    view = 'home'; render();
+  };
+  finishBtn.onclick = () => {
+    if (store.totalSets(activeSession) === 0 && !window.confirm('Finish with no sets logged?')) return;
+    store.finishSession(activeSession);
+    activeSession = null; view = 'home'; render();
+  };
+
+  /* ---------- Settings sheet wiring (reused pattern from Grocery List) ---------- */
+  const settingsEl = document.getElementById('settings');
+  const appearanceEl = document.getElementById('appearance');
+  const swatchesEl = document.getElementById('swatches');
+  const removeCustomBtn = document.getElementById('removeCustom');
+  const rgbPreview = document.getElementById('rgbPreview');
+  const svSquare = document.getElementById('svSquare');
+  const svHandle = document.getElementById('svHandle');
+  const hueIn = document.getElementById('hueIn');
+  const pickHex = document.getElementById('pickHex');
+
+  function paintSettings() {
+    [...appearanceEl.children].forEach(b => b.classList.toggle('on', b.dataset.v === settings.appearance));
+    const presets = allPresets();
+    swatchesEl.innerHTML = '';
+    Object.keys(presets).forEach(key => {
+      const sw = document.createElement('button');
+      sw.className = 'swatch' + (settings.accent === key ? ' on' : '');
+      sw.style.background = presets[key][isDark() ? 'dark' : 'light'][0];
+      sw.setAttribute('aria-label', key.startsWith('#') ? 'custom ' + key : key);
+      sw.onclick = () => { settings.accent = key; saveSettings(); applySettings(); paintSettings(); render(); };
+      swatchesEl.appendChild(sw);
+    });
+    removeCustomBtn.hidden = !String(settings.accent).startsWith('#');
+    const curHex = (presets[settings.accent] || PALETTE.blue)[isDark() ? 'dark' : 'light'][0];
+    syncPicker(curHex);
+  }
+
+  const picker = { h: 220, s: 0.7, v: 0.85 };
+  const pickerHex = () => rgbToHex(...hsvToRgb(picker.h, picker.s, picker.v));
+  function paintPicker() {
+    svSquare.style.backgroundColor = `hsl(${picker.h}, 100%, 50%)`;
+    svHandle.style.left = (picker.s * 100) + '%';
+    svHandle.style.top = ((1 - picker.v) * 100) + '%';
+    hueIn.value = picker.h;
+    const hex = pickerHex();
+    rgbPreview.style.background = hex;
+    svHandle.style.background = hex;
+    pickHex.textContent = hex.toUpperCase();
+  }
+  function syncPicker(hex) {
+    const [h, s, v] = rgbToHsv(...hexToRgb(hex));
+    picker.h = h; picker.s = s; picker.v = v;
+    paintPicker();
+  }
+  function svFromEvent(e) {
+    const rect = svSquare.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    picker.s = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    picker.v = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top) / rect.height));
+    paintPicker();
+  }
+  let svDragging = false;
+  svSquare.addEventListener('pointerdown', (e) => {
+    svDragging = true;
+    try { svSquare.setPointerCapture(e.pointerId); } catch {}
+    svFromEvent(e); e.preventDefault();
+  });
+  svSquare.addEventListener('pointermove', (e) => { if (svDragging) svFromEvent(e); });
+  svSquare.addEventListener('pointerup', () => { svDragging = false; });
+  svSquare.addEventListener('pointercancel', () => { svDragging = false; });
+  hueIn.addEventListener('input', () => { picker.h = +hueIn.value; paintPicker(); });
+  document.getElementById('addPreset').onclick = () => {
+    const hex = pickerHex();
+    if (!settings.customColors.includes(hex)) settings.customColors.push(hex);
+    settings.accent = hex;
+    saveSettings(); applySettings(); paintSettings(); render();
+  };
+  removeCustomBtn.onclick = () => {
+    settings.customColors = settings.customColors.filter(c => c !== settings.accent);
+    settings.accent = 'blue';
+    saveSettings(); applySettings(); paintSettings(); render();
+  };
+  appearanceEl.querySelectorAll('button').forEach(b => {
+    b.onclick = () => { settings.appearance = b.dataset.v; saveSettings(); applySettings(); paintSettings(); render(); };
+  });
+  document.getElementById('settingsBtn').onclick = () => { paintSettings(); settingsEl.hidden = false; };
+  document.getElementById('closeSettings').onclick = () => { settingsEl.hidden = true; };
+  settingsEl.onclick = (e) => { if (e.target === settingsEl) settingsEl.hidden = true; };
+  document.getElementById('clearHistory').onclick = () => {
+    if (!store.sessions.length) { settingsEl.hidden = true; return; }
+    if (!window.confirm('Clear all workout history? This cannot be undone.')) return;
+    store.sessions = []; store.save();
+    settingsEl.hidden = true; render();
+  };
+
+  /* ---------- Boot ---------- */
+  render();
+
+  /* ---------- Service worker ---------- */
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+  </script>
+</body>
+</html>

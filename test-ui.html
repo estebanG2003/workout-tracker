@@ -1,0 +1,121 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>UI test</title></head>
+<body data-result="">
+<iframe id="f" src="index.html" style="width:390px;height:844px;"></iframe>
+<script>
+const results = [];
+function ok(cond, msg) { results.push({ pass: !!cond, msg }); }
+function finish() {
+  const pass = results.filter(r => r.pass).length;
+  const fail = results.filter(r => !r.pass);
+  document.body.setAttribute('data-result', JSON.stringify({ pass, fail: fail.length, failMsgs: fail.map(f => f.msg) }));
+  document.title = fail.length === 0 ? 'ALL PASS' : 'FAILURES';
+}
+function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+
+const iframe = document.getElementById('f');
+iframe.addEventListener('load', () => {
+  const w = iframe.contentWindow, d = iframe.contentDocument;
+  // stub prompt/confirm so scripted flows don't block headless execution
+  w.prompt = () => 'Cable Fly';
+  w.confirm = () => true;
+
+  function findRow(name) {
+    return [...d.querySelectorAll('.ex-row')].find(r => r.querySelector('.ex-name').textContent === name);
+  }
+
+  setTimeout(() => {
+    try {
+      // ---- Home screen ----
+      const splitBtns = d.querySelectorAll('.split-btn');
+      ok(splitBtns.length === 3, 'home shows 3 split buttons, got ' + splitBtns.length);
+      const pushBtn = [...splitBtns].find(b => b.dataset.split === 'push');
+      ok(!!pushBtn, 'push split button exists');
+      click(pushBtn);
+
+      // ---- Active session: title + seeded exercises ----
+      ok(d.getElementById('screenTitle').textContent === 'Push', 'title switches to Push, got ' + d.getElementById('screenTitle').textContent);
+      let rows = d.querySelectorAll('.ex-row');
+      ok(rows.length === 5, 'push split shows 5 seeded exercises, got ' + rows.length);
+      ok(findRow('Bench Press').querySelector('.ex-summary').textContent === 'New', 'Bench Press starts with "New" (no previous data)');
+      click(findRow('Bench Press').querySelector('.ex-head'));   // re-render happens here
+
+      // ---- Expand + log two sets (re-query after every render-triggering click) ----
+      let body = findRow('Bench Press').querySelector('.ex-body');
+      ok(!!body, 'exercise body expands on tap');
+      ok(body.querySelector('.ex-ref b').textContent === 'No previous data', 'reference line reads "No previous data" for a fresh exercise');
+      click(body.querySelector('[data-wadj="2.5"]'));
+      body = findRow('Bench Press').querySelector('.ex-body'); // nudge handlers mutate in place, no re-render, but re-fetch defensively
+      click(body.querySelector('[data-wadj="2.5"]')); // +5 total from 0
+      ok(body.querySelector('#wVal').textContent === '5', 'weight nudges accumulate: 0 -> 2.5 -> 5, got ' + body.querySelector('#wVal').textContent);
+      for (let i = 0; i < 8; i++) click(body.querySelector('[data-radj="1"]'));
+      ok(body.querySelector('#rVal').textContent === '8', 'reps stepper reaches 8, got ' + body.querySelector('#rVal').textContent);
+      click(body.querySelector('#logBtn'));   // re-render happens here
+
+      let benchRow = findRow('Bench Press');
+      ok(benchRow.classList.contains('done'), 'Bench Press row marked done after logging a set');
+      ok(benchRow.querySelector('.ex-summary').textContent === '5×8', 'summary shows 5×8 after logging, got ' + benchRow.querySelector('.ex-summary').textContent);
+
+      // log a second set — the row stays expanded after logging (expandedExercise
+      // is untouched by logSet), so no need to click the head again
+      body = findRow('Bench Press').querySelector('.ex-body');
+      ok(!!body, 'exercise stays expanded after logging a set (not re-collapsed)');
+      ok(body.querySelector('#wVal').textContent === '5', 'second-set default weight carries forward from the set just logged, got ' + body.querySelector('#wVal').textContent);
+      click(body.querySelector('#logBtn'));
+      benchRow = findRow('Bench Press');
+      ok(benchRow.querySelector('.ex-summary').textContent === '5×8, 5×8', 'two sets now shown for Bench Press, got ' + benchRow.querySelector('.ex-summary').textContent);
+
+      // ---- Add custom exercise (prompt stubbed to "Cable Fly") ----
+      click(d.getElementById('addExerciseBtn'));
+      rows = d.querySelectorAll('.ex-row');
+      ok(rows.length === 6, 'custom exercise appended, now 6 rows, got ' + rows.length);
+      ok([...rows].some(r => r.querySelector('.ex-name').textContent === 'Cable Fly'), 'Cable Fly appears in the list');
+
+      // ---- Finish workout ----
+      click(d.getElementById('finishBtn'));
+      ok(d.getElementById('screenTitle').textContent === 'Workout', 'finishing returns to home, got ' + d.getElementById('screenTitle').textContent);
+
+      // ---- History reflects the finished session ----
+      click(d.getElementById('historyLink'));
+      ok(d.getElementById('screenTitle').textContent === 'History', 'history screen title correct');
+      let cards = d.querySelectorAll('.session-card');
+      ok(cards.length === 1, 'one session in history, got ' + cards.length);
+      click(cards[0].querySelector('.session-head'));   // re-render happens here
+      cards = d.querySelectorAll('.session-card');       // re-query — old node is detached
+      const detail = cards[0].querySelector('.session-detail');
+      ok(!!detail, 'session card expands to detail');
+      ok(detail.textContent.includes('Bench Press') && detail.textContent.includes('5×8, 5×8'), 'history detail shows correct exercise + sets, got: ' + detail.textContent.replace(/\s+/g,' '));
+
+      // ---- Back home, start a second Push session, verify "Last time" reads back ----
+      click(d.getElementById('backBtn'));
+      click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'push'));
+      ok(findRow('Bench Press').querySelector('.ex-summary').textContent === 'Last: 5×8, 5×8', 'new session shows "Last: 5×8, 5×8" for Bench Press, got ' + findRow('Bench Press').querySelector('.ex-summary').textContent);
+      click(findRow('Bench Press').querySelector('.ex-head'));
+      body = findRow('Bench Press').querySelector('.ex-body');
+      ok(body.querySelector('.ex-ref b').textContent === '5×8, 5×8', 'reference line shows last time\'s sets, got ' + body.querySelector('.ex-ref b').textContent);
+      ok(body.querySelector('#wVal').textContent === '5' && body.querySelector('#rVal').textContent === '8', 'weight/reps default from last time (first set): 5x8');
+
+      // discard this second in-progress session so it doesn't pollute the settings test below
+      click(d.getElementById('backBtn'));
+
+      // ---- Settings sheet: theme color + dark mode ----
+      click(d.getElementById('settingsBtn'));
+      const settingsOverlay = d.getElementById('settings');
+      ok(!settingsOverlay.hidden, 'settings sheet opens');
+      const greenSwatch = [...d.querySelectorAll('.swatch')][1]; // index 1 = green in PALETTE order
+      click(greenSwatch);
+      ok(getComputedStyle(d.documentElement).getPropertyValue('--accent').trim().toLowerCase() === '#16a34a', 'theme swatch click updates --accent to green');
+      const darkBtn = [...d.querySelectorAll('#appearance button')].find(b => b.dataset.v === 'dark');
+      click(darkBtn);
+      ok(d.documentElement.getAttribute('data-theme') === 'dark', 'appearance toggle sets data-theme=dark');
+      click(d.getElementById('closeSettings'));
+      ok(settingsOverlay.hidden, 'settings sheet closes');
+
+    } catch (err) {
+      ok(false, 'EXCEPTION: ' + err.message);
+    }
+    finish();
+  }, 150);
+});
+</script>
+</body></html>
