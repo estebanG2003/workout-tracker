@@ -9,10 +9,11 @@ A small, personal, mobile-first push/pull/legs workout tracker PWA. No framework
 - Tap an exercise to log a set: **+2.5 / +5 / +10** weight nudges and a reps stepper, both pre-filled from last time (or from the set you just logged this session, once you've logged one). Tap **Log Set** to record it; log as many sets as you did.
 - **Add exercise** lets you log something outside the seeded list — it's remembered for that split going forward.
 - **Finish Workout** saves the session. **History** shows every past session, expandable to the full set-by-set detail — the same data "Last time" reads from.
+- **Export** (top of History) downloads a `workout-export-YYYY-MM-DD.md` file — vault-note-ready markdown, one `## date — Split` block per session with exercises as bullets. Only exports sessions logged since your last export (tracked separately from the sessions themselves), so repeated exports never duplicate — paste-append the file's contents into `Life/Health.md` or wherever you're keeping the log. Says "No new sessions to export" if you export twice with nothing new in between.
 
 ## Deliberately out of scope (v1)
 
-- No vault / `Life/Health.md` integration — standalone only. Update Health.md by hand if you want a summary there.
+- No *automatic* vault / `Life/Health.md` integration — export is a manual download-then-paste step, by design (kept the app standalone, no vault write access).
 - No rest timers, RPE/RIR, or auto progression suggestions.
 - No editing/deleting a set once logged.
 - No accounts, no cloud sync — one device, `localStorage` only.
@@ -33,9 +34,9 @@ Then open `http://localhost:8731`. A service worker + `localhost` secure context
 node test-model.js
 ```
 
-Deterministic, dependency-free tests for the data model (43 checks: set logging, the "last time" plan/actual lookup including within-session progression, custom exercises, persistence, the reused color-theme math).
+Deterministic, dependency-free tests for the data model (61 checks: set logging, the "last time" plan/actual lookup including within-session progression, custom exercises, persistence, markdown export formatting, the export-tracker's "only what's new" logic, the reused color-theme math).
 
-**UI integration test** (`test-ui.html`) drives the real app through real DOM events — start a workout, expand an exercise, nudge weight/reps, log sets, add a custom exercise, finish, verify history, start a second session and confirm "Last time" reads back correctly, and exercise the settings sheet (theme color + dark mode). Run it by serving the folder and opening `test-ui.html` in a browser, or headless:
+**UI integration test** (`test-ui.html`) drives the real app through real DOM events — start a workout, expand an exercise, nudge weight/reps, log sets, add a custom exercise, finish, verify history, export (intercepted via a `window.__exportHook` test seam instead of triggering a real download) and confirm a second export with nothing new correctly no-ops, start a second session and confirm "Last time" reads back correctly, and exercise the settings sheet (theme color + dark mode). Run it by serving the folder and opening `test-ui.html` in a browser, or headless:
 
 ```bash
 # with the static server running on :8731

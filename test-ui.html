@@ -16,9 +16,10 @@ function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })
 const iframe = document.getElementById('f');
 iframe.addEventListener('load', () => {
   const w = iframe.contentWindow, d = iframe.contentDocument;
-  // stub prompt/confirm so scripted flows don't block headless execution
+  // stub prompt/confirm/alert so scripted flows don't block headless execution
   w.prompt = () => 'Cable Fly';
   w.confirm = () => true;
+  w.alert = (msg) => { w.__lastAlert = msg; };
 
   function findRow(name) {
     return [...d.querySelectorAll('.ex-row')].find(r => r.querySelector('.ex-name').textContent === name);
@@ -85,6 +86,27 @@ iframe.addEventListener('load', () => {
       const detail = cards[0].querySelector('.session-detail');
       ok(!!detail, 'session card expands to detail');
       ok(detail.textContent.includes('Bench Press') && detail.textContent.includes('5×8, 5×8'), 'history detail shows correct exercise + sets, got: ' + detail.textContent.replace(/\s+/g,' '));
+
+      // ---- Export: intercept the download via the test hook instead of triggering a real file save ----
+      let exportBtn = d.getElementById('exportBtn');
+      ok(exportBtn.textContent.includes('1 new'), 'export button shows pending count, got ' + exportBtn.textContent);
+      w.__exportHook = (filename, text) => { w.__capturedExport = { filename, text }; };
+      click(exportBtn);
+      ok(!!w.__capturedExport, 'export hook fired');
+      ok(/^workout-export-\d{4}-\d{2}-\d{2}\.md$/.test(w.__capturedExport.filename), 'filename matches workout-export-YYYY-MM-DD.md, got ' + w.__capturedExport.filename);
+      // Cable Fly was added but never had a set logged, so it correctly has no
+      // entry and does not appear in the export (entries only exist per logged set).
+      ok(w.__capturedExport.text.includes('## ') && w.__capturedExport.text.includes('Bench Press: 5×8, 5×8'), 'exported markdown contains the session\'s logged exercise + sets, got:\n' + w.__capturedExport.text);
+      ok(!w.__capturedExport.text.includes('Cable Fly'), 'Cable Fly (added but never logged) correctly absent from the export');
+
+      // exporting again immediately: nothing new since we just exported -> alert, no second capture
+      w.__capturedExport = null;
+      w.__lastAlert = null;
+      exportBtn = d.getElementById('exportBtn');
+      ok(!exportBtn.textContent.includes('new'), 'pending count clears after export, got ' + exportBtn.textContent);
+      click(exportBtn);
+      ok(w.__lastAlert === 'No new sessions to export since your last export.', 'second export with nothing new triggers the empty-export alert, got ' + w.__lastAlert);
+      ok(w.__capturedExport === null, 'no export hook call when there is nothing new to export');
 
       // ---- Back home, start a second Push session, verify "Last time" reads back ----
       click(d.getElementById('backBtn'));

@@ -1,6 +1,7 @@
 /* Deterministic tests for the workout tracker data model.
    Run: node test-model.js    (no dependencies) */
 const { SPLITS, SEED_EXERCISES, createStore, createExercises, sortSessionsDesc,
+        formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
         hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv } = require('./model.js');
 
 let pass = 0, fail = 0;
@@ -150,6 +151,63 @@ console.log('createExercises — addCustom');
   // persists across a fresh load
   const ex2 = createExercises(storage);
   ok(ex2.forSplit('push').includes('Cable Fly'), 'custom exercise persists across reload');
+}
+
+console.log('formatSets');
+{
+  ok(formatSets([{ weight: 135, reps: 8 }]) === '135×8', 'single set formats as weight×reps');
+  ok(formatSets([{ weight: 135, reps: 8 }, { weight: 130, reps: 6 }]) === '135×8, 130×6', 'multiple sets comma-joined');
+  ok(formatSets([]) === '', 'empty sets -> empty string');
+  ok(formatSets([{ weight: 0, reps: 12 }]) === '0×12', 'bodyweight (0 weight) formats correctly');
+}
+
+console.log('localDateStr');
+{
+  // Construct via local Date components so the test is timezone-independent.
+  const ts = new Date(2026, 6, 8, 23, 30).getTime(); // July 8 2026, 11:30pm local
+  ok(localDateStr(ts) === '2026-07-08', 'formats as YYYY-MM-DD in local time, got ' + localDateStr(ts));
+  const ts2 = new Date(2026, 0, 1, 0, 5).getTime(); // Jan 1 2026, just after midnight
+  ok(localDateStr(ts2) === '2026-01-01', 'pads single-digit month/day, got ' + localDateStr(ts2));
+}
+
+console.log('sessionsAfter');
+{
+  const a = { id: 'a', date: 100 }, b = { id: 'b', date: 200 }, c = { id: 'c', date: 300 };
+  const sessions = [a, b, c];
+  ok(sessionsAfter(sessions, 150).map(s => s.id).join(',') === 'b,c', 'returns sessions strictly after ts');
+  ok(sessionsAfter(sessions, 300).length === 0, 'nothing after the newest session\'s own date');
+  ok(sessionsAfter(sessions).length === 3, 'no ts (undefined) -> everything, treated as since epoch');
+  ok(sessionsAfter(sessions, 0).length === 3, 'ts=0 -> everything');
+}
+
+console.log('toMarkdown');
+{
+  ok(toMarkdown([]) === '', 'no sessions -> empty string');
+  const s1 = { id: 's1', date: new Date(2026, 6, 18, 8, 0).getTime(), split: 'push',
+    entries: [{ exercise: 'Bench Press', sets: [{ weight: 135, reps: 8 }, { weight: 135, reps: 7 }] },
+              { exercise: 'Dips', sets: [{ weight: 0, reps: 12 }] }] };
+  const md1 = toMarkdown([s1]);
+  ok(md1 === '## 2026-07-18 — Push\n- Bench Press: 135×8, 135×7\n- Dips: 0×12\n', 'single-session markdown matches exactly, got:\n' + md1);
+
+  const s2 = { id: 's2', date: new Date(2026, 6, 19, 8, 0).getTime(), split: 'legs',
+    entries: [{ exercise: 'Squat', sets: [{ weight: 185, reps: 5 }] }] };
+  const md2 = toMarkdown([s2, s1]);   // pass in reverse order — function must sort
+  ok(md2.indexOf('2026-07-18') < md2.indexOf('2026-07-19'), 'multiple sessions ordered oldest-first regardless of input order');
+  ok(md2 === md1 + '\n' + '## 2026-07-19 — Legs\n- Squat: 185×5\n', 'two-session markdown blocks separated by a blank line, got:\n' + md2);
+
+  const noEntries = { id: 's3', date: Date.now(), split: 'pull', entries: [] };
+  ok(toMarkdown([noEntries]) === '## ' + localDateStr(noEntries.date) + ' — Pull\n\n', 'a session with zero entries still emits its header, no dangling bullets');
+}
+
+console.log('createExportTracker');
+{
+  const storage = memStorage();
+  const t = createExportTracker(storage);
+  ok(t.get() === 0, 'defaults to 0 (epoch) when nothing exported yet');
+  t.set(1234567);
+  ok(t.get() === 1234567, 'set/get round-trips');
+  const t2 = createExportTracker(storage);   // fresh instance, same storage
+  ok(t2.get() === 1234567, 'persists across a fresh load from the same storage');
 }
 
 console.log('color helpers (custom RGB theme) — same math as Grocery List');

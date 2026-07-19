@@ -148,6 +148,47 @@
     return sessions.slice().sort((a, b) => b.date - a.date);
   }
 
+  function formatSets(sets) {
+    return sets.map(s => `${s.weight}×${s.reps}`).join(', ');
+  }
+
+  const pad2 = n => String(n).padStart(2, '0');
+  /* Local (not UTC) Y-M-D — a session's `date` is a local Date.now() timestamp,
+     so formatting via toISOString (UTC) could shift it to the wrong calendar
+     day near midnight. Matches the vault's "## YYYY-MM-DD — Label" convention. */
+  function localDateStr(ts) {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  }
+
+  /* Sessions with date strictly after `ts` (0 if omitted -> everything). Used
+     for "export only what's new since last export". */
+  function sessionsAfter(sessions, ts) {
+    return sessions.filter(s => s.date > (ts || 0));
+  }
+
+  /* Markdown export — a vault-note-ready block per session, oldest first (a
+     natural chronological log to append). Entries only exist for exercises
+     that actually had a set logged, so nothing "empty" shows up. */
+  function toMarkdown(sessions) {
+    const sorted = sessions.slice().sort((a, b) => a.date - b.date);
+    return sorted.map(s => {
+      const label = s.split.charAt(0).toUpperCase() + s.split.slice(1);
+      const lines = s.entries.map(e => `- ${e.exercise}: ${formatSets(e.sets)}`);
+      return `## ${localDateStr(s.date)} — ${label}\n${lines.join('\n')}`;
+    }).join('\n\n') + (sorted.length ? '\n' : '');
+  }
+
+  /* Tracks the timestamp of the last successful export, so re-exporting only
+     picks up sessions finished since then — no manual dedup in the vault. */
+  function createExportTracker(storage) {
+    const EKEY = 'workout-last-export-v1';
+    return {
+      get() { const v = storage.getItem(EKEY); return v ? Number(v) : 0; },
+      set(ts) { storage.setItem(EKEY, String(ts)); },
+    };
+  }
+
   /* ---- Color helpers for the custom (RGB) theme presets ----
      Reused verbatim from the Grocery List app's model.js — same theme
      system (settings sheet, swatches, HSV picker), same math. */
@@ -195,5 +236,6 @@
   }
 
   return { SPLITS, SEED_EXERCISES, createStore, createExercises, sortSessionsDesc,
+           formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY };
 });

@@ -265,9 +265,11 @@
   <script>
   /* View layer. Core data model lives in model.js (shared with tests). */
   const { SPLITS, createStore, createExercises, sortSessionsDesc,
+          formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
           hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv } = WorkoutModel;
   const store = createStore(localStorage);
   const exercises = createExercises(localStorage);
+  const exportTracker = createExportTracker(localStorage);
   store.load();
 
   const SPLIT_LABEL = { push: 'Push', pull: 'Pull', legs: 'Legs' };
@@ -328,9 +330,6 @@
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-  }
-  function formatSets(sets) {
-    return sets.map(s => `${s.weight}×${s.reps}`).join(', ');
   }
   function formatDate(ts) {
     return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -449,13 +448,37 @@
 
   function renderHistory() {
     const sessions = sortSessionsDesc(store.sessions);
+    const pendingCount = sessionsAfter(store.sessions, exportTracker.get()).length;
+    const exportRow = `<button class="list-add" id="exportBtn">⬇ Export${pendingCount ? ` (${pendingCount} new)` : ''}</button>`;
     if (!sessions.length) {
-      screenEl.innerHTML = `<div class="empty"><div class="big">🏋️</div>No workouts logged yet.</div>`;
-      return;
+      screenEl.innerHTML = `<div class="empty"><div class="big">🏋️</div>No workouts logged yet.</div>${exportRow}`;
+    } else {
+      screenEl.innerHTML = `<ul class="session-list" id="sessList"></ul>${exportRow}`;
+      const listEl = document.getElementById('sessList');
+      sessions.forEach(s => listEl.appendChild(renderSessionCard(s)));
     }
-    screenEl.innerHTML = `<ul class="session-list" id="sessList"></ul>`;
-    const listEl = document.getElementById('sessList');
-    sessions.forEach(s => listEl.appendChild(renderSessionCard(s)));
+    document.getElementById('exportBtn').onclick = exportHistory;
+  }
+
+  /* Downloads a .md file (unless a test hook intercepts it — see test-ui.html). */
+  function download(filename, text) {
+    if (typeof window.__exportHook === 'function') { window.__exportHook(filename, text); return; }
+    const blob = new Blob([text], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportHistory() {
+    const since = exportTracker.get();
+    const newSessions = sessionsAfter(store.sessions, since);
+    if (!newSessions.length) { window.alert('No new sessions to export since your last export.'); return; }
+    const now = Date.now();
+    download(`workout-export-${localDateStr(now)}.md`, toMarkdown(newSessions));
+    exportTracker.set(now);
+    render();
   }
 
   function renderSessionCard(s) {

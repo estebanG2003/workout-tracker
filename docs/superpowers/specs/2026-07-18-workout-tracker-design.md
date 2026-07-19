@@ -73,7 +73,18 @@ No new settings beyond theme + appearance — no unit toggles (lbs assumed, matc
 
 ## Out of Scope (v1)
 
-- Vault/Health.md integration (deferred, see Architecture)
+- Automatic vault/Health.md integration — resolved via manual export instead, see Amendment below
 - Rest timers, RPE/RIR tracking, progression suggestions/auto-increment logic
 - Multi-user, cloud sync, auth
 - Editing/deleting a set after logging (can be added later if it turns out to matter in real use)
+
+## Amendment (2026-07-18, same day): Markdown export
+
+After the initial build, Esteban asked for an easy way to get history into the vault. Answered with a manual export rather than reopening the standalone-vs-integrated decision:
+
+- **History screen** gets an **Export** button showing a pending count (e.g. "Export (2 new)").
+- Downloads `workout-export-YYYY-MM-DD.md` — one `## YYYY-MM-DD — Split` block per session, exercises as `- Name: weight×reps, weight×reps` bullets. Local calendar date (not UTC) to avoid a midnight-boundary shift.
+- **Only sessions since the last export** are included — a `workout-last-export-v1` timestamp in `localStorage`, separate from session data, advances on every successful export. Exporting twice with nothing new shows an alert instead of an empty/duplicate file.
+- Still standalone: this is a manual download-then-paste step, not a live vault write. Keeps the app's `localStorage`-only architecture intact — no new capability for the app to reach outside itself.
+- `formatSets` moved from `index.html` into `model.js` (was duplicated) so the export markdown and the on-screen summaries are guaranteed to render sets identically.
+- Model additions (`localDateStr`, `sessionsAfter`, `toMarkdown`, `createExportTracker`) are pure/injectable and covered by 18 new `test-model.js` checks (61 total). The view's download step has a `window.__exportHook` test seam so `test-ui.html` can verify the real click-through flow without triggering an actual browser file-save dialog in headless Chrome.
