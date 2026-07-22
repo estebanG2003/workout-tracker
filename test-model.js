@@ -233,6 +233,44 @@ console.log('HSV <-> RGB (color picker)');
   ok(eq(rt(59, 130, 246), [59, 130, 246]), 'round-trip #3b82f6');
 }
 
+console.log('store.lastSessionForSplit');
+{
+  const storage = memStorage();
+  const s = createStore(storage).load();
+  ok(s.lastSessionForSplit('push') === null, 'no sessions yet -> null, not a throw');
+
+  const olderPull = s.startSession('pull'); olderPull.date = 1000;
+  s.logSet(olderPull, 'Lever Row', 45, 10);
+  s.finishSession(olderPull);
+
+  const push1 = s.startSession('push'); push1.date = 1500;
+  s.logSet(push1, 'Bench Press', 100, 8);
+  s.finishSession(push1);
+
+  const newerPull = s.startSession('pull'); newerPull.date = 2000;
+  s.logSet(newerPull, 'Lever Row', 65, 10);
+  s.logSet(newerPull, 'Shrugs', 65, 10);
+  s.finishSession(newerPull);
+
+  const last = s.lastSessionForSplit('pull');
+  ok(last.id === newerPull.id, 'returns the most recent session matching the split, ignoring other splits and older sessions of the same split');
+  ok(last.entries.map(e => e.exercise).join(',') === 'Lever Row,Shrugs', 'carries the exercise list + order from that session\'s entries');
+  ok(s.lastSessionForSplit('legs') === null, 'a split with zero sessions still returns null');
+
+  // Tied dates can happen with fabricated/imported timestamps (or two
+  // sessions finished in the same millisecond) — the LAST-inserted one
+  // (i.e. the actually-most-recent one) must win, not the first.
+  const storage2 = memStorage();
+  const s2 = createStore(storage2).load();
+  const tiedA = s2.startSession('push'); tiedA.date = 5000;
+  s2.logSet(tiedA, 'Bench Press', 100, 8);
+  s2.finishSession(tiedA);
+  const tiedB = s2.startSession('push'); tiedB.date = 5000; // identical timestamp, inserted second
+  s2.logSet(tiedB, 'Overhead Press', 80, 8);
+  s2.finishSession(tiedB);
+  ok(s2.lastSessionForSplit('push').id === tiedB.id, 'on a tied date, the LAST-inserted (truly most recent) session wins, not the first');
+}
+
 console.log('deleteSet');
 {
   const s = createStore(memStorage()).load();

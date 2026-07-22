@@ -146,6 +146,19 @@
         return this.sessions.find(s => s.id === id) || null;
       },
 
+      /* Most recent FINISHED session matching `split` — used to carry an
+         entire split's exercise list + order forward from last time, not
+         just per-exercise weight/rep defaults. Ties (identical timestamps —
+         can happen with fabricated/imported dates) resolve to whichever
+         sorts LAST in `this.sessions`, since that array is always appended
+         in true chronological order: `>=` keeps replacing "latest so far"
+         through a tie instead of stopping at the first match. */
+      lastSessionForSplit(split) {
+        return this.sessions
+          .filter(s => s.split === split)
+          .reduce((latest, s) => (!latest || s.date >= latest.date ? s : latest), null);
+      },
+
       deleteSession(id) {
         const before = this.sessions.length;
         this.sessions = this.sessions.filter(s => s.id !== id);

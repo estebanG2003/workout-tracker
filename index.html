@@ -405,6 +405,13 @@
   let editingSet = null;
   let justLoggedExercise = null; // one-shot flag: name of the exercise whose set-list should flash on this render
   let historyEditId = null;      // id of the ONE history session card currently in edit mode (read-only otherwise)
+  /* Once a split has real history, its exercise list for a new session is
+     carried forward from the last finished session of that split (name +
+     order), not the generic SEED_EXERCISES list. These two are session-local
+     view state only — they never touch history or the persisted custom
+     exercise list, and reset every time a new session starts. */
+  let hiddenToday = new Set();   // exercise names skipped from today's carried-forward list
+  let addedToday = [];           // exercise names added today via "+ Add exercise" (carry-forward mode only)
 
   const screenEl = document.getElementById('screen');
   const titleEl = document.getElementById('screenTitle');
@@ -445,6 +452,7 @@
       b.onclick = () => {
         activeSession = store.startSession(b.dataset.split);
         expandedExercise = null; draft = {}; editingSet = null;
+        hiddenToday = new Set(); addedToday = [];
         view = 'active'; render();
       };
     });
@@ -455,17 +463,37 @@
   }
 
   function renderActive() {
-    const list = exercises.forSplit(activeSession.split);
+    /* Once this split has real history, carry its exercise list forward
+       from the last finished session of that split (name + order) instead
+       of the generic SEED_EXERCISES list — that's the whole point: open a
+       new Pull day and see last Pull day's exercises already there. */
+    const lastSplitSession = store.lastSessionForSplit(activeSession.split);
+    let list;
+    if (lastSplitSession) {
+      const baseList = lastSplitSession.entries.map(e => e.exercise);
+      const extra = addedToday.filter(n => !baseList.includes(n));
+      list = baseList.concat(extra).filter(n => !hiddenToday.has(n));
+    } else {
+      list = exercises.forSplit(activeSession.split);
+    }
     screenEl.innerHTML = `
       <ul class="ex-list" id="exList"></ul>
       <button class="list-add" id="addExerciseBtn"><span class="plus">+</span><span>Add exercise</span></button>`;
     const exListEl = document.getElementById('exList');
-    list.forEach(name => exListEl.appendChild(renderExerciseRow(name)));
+    list.forEach(name => exListEl.appendChild(renderExerciseRow(name, !!lastSplitSession)));
     document.getElementById('addExerciseBtn').onclick = () => {
       const name = window.prompt('Exercise name:');
       if (name === null) return;
-      const added = exercises.addCustom(activeSession.split, name);
-      if (added) { expandedExercise = added; render(); }
+      if (lastSplitSession) {
+        const nm = String(name).trim();
+        if (!nm || list.some(n => n.toLowerCase() === nm.toLowerCase())) return;
+        addedToday.push(nm);
+        expandedExercise = nm;
+        render();
+      } else {
+        const added = exercises.addCustom(activeSession.split, name);
+        if (added) { expandedExercise = added; render(); }
+      }
     };
   }
 
@@ -534,7 +562,7 @@
     }
   }
 
-  function renderExerciseRow(name) {
+  function renderExerciseRow(name, carryForward) {
     const entry = activeSession.entries.find(e => e.exercise === name);
     const todaySets = entry ? entry.sets : [];
     const lastSets = store.lastSetsFor(name, activeSession.id);
@@ -543,12 +571,17 @@
     const li = document.createElement('li');
     li.className = 'ex-row' + (expanded ? ' expanded' : '') + (todaySets.length ? ' done' : '');
 
-    const isCustom = !SEED_EXERCISES[activeSession.split].includes(name);
+    /* In carry-forward mode every row came from last time's actual session
+       (or was added today), so every row can be skipped for today — there's
+       no "protected seed" concept once real history exists. In the
+       no-history-yet fallback, only non-seed (persisted custom) exercises
+       are removable, same as before this change. */
+    const removable = carryForward || !SEED_EXERCISES[activeSession.split].includes(name);
     const head = document.createElement('div');
     head.className = 'ex-head';
     head.innerHTML = `<span class="ex-name">${escapeHtml(name)}</span>
       <span class="ex-head-right">
-        ${isCustom ? '<button class="set-icon-btn danger" data-remove-ex aria-label="remove exercise">✕</button>' : ''}
+        ${removable ? '<button class="set-icon-btn danger" data-remove-ex aria-label="remove exercise">✕</button>' : ''}
         <span class="ex-summary">${todaySets.length ? formatSets(todaySets) : (lastSets.length ? 'Last: ' + formatSets(lastSets) : 'New')}</span>
       </span>`;
     head.onclick = () => { expandedExercise = expanded ? null : name; render(); };
@@ -556,11 +589,20 @@
     if (removeExBtn) {
       removeExBtn.onclick = (ev) => {
         ev.stopPropagation();
-        const msg = todaySets.length
-          ? `Remove "${name}" from your exercise list? Sets already logged for it this workout will still be saved when you finish, but you won't be able to edit them here anymore.`
-          : `Remove "${name}" from your exercise list?`;
-        if (!window.confirm(msg)) return;
-        exercises.removeCustom(activeSession.split, name);
+        if (carryForward) {
+          const msg = todaySets.length
+            ? `Skip "${name}" for today's workout? Sets already logged for it this workout will still be saved when you finish, but you won't be able to edit them here anymore.`
+            : `Skip "${name}" for today's workout?`;
+          if (!window.confirm(msg)) return;
+          hiddenToday.add(name);
+          addedToday = addedToday.filter(n => n !== name);
+        } else {
+          const msg = todaySets.length
+            ? `Remove "${name}" from your exercise list? Sets already logged for it this workout will still be saved when you finish, but you won't be able to edit them here anymore.`
+            : `Remove "${name}" from your exercise list?`;
+          if (!window.confirm(msg)) return;
+          exercises.removeCustom(activeSession.split, name);
+        }
         if (expandedExercise === name) expandedExercise = null;
         render();
       };

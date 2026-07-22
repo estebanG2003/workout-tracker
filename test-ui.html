@@ -231,36 +231,83 @@ iframe.addEventListener('load', () => {
       ok(setRows.length === 1, 'one set row remains after deleting the second, got ' + setRows.length);
       ok(findRow('Squat').querySelector('.ex-summary').textContent === '15×6', 'Squat summary reflects the surviving edited set, got ' + findRow('Squat').querySelector('.ex-summary').textContent);
 
-      // ---- Remove a custom exercise (added earlier this session as "Cable Fly" via stubbed prompt) ----
-      click(d.getElementById('backBtn'));   // discard this in-progress Legs session (confirm stubbed true)
+      // ---- Log a second exercise in this SAME session, then finish once ----
+      // This is still the FIRST-EVER Legs session (no finished Legs history
+      // exists yet), so it's in fallback/seed-list mode — RDL is already one
+      // of the 5 seed rows, just collapsed. Tap its head to expand it.
+      click(findRow('RDL').querySelector('.ex-head'));
+      let rdlBody = findRow('RDL').querySelector('.ex-body');
+      click(rdlBody.querySelector('[data-wadj="10"]'));
+      for (let i = 0; i < 5; i++) click(rdlBody.querySelector('[data-radj="1"]'));
+      click(findRow('RDL').querySelector('.ex-body').querySelector('#logBtn'));   // RDL: 10x5
+      const doneNames = [...d.querySelectorAll('.ex-row.done')].map(r => r.querySelector('.ex-name').textContent);
+      ok(doneNames.join(',') === 'Squat,RDL', 'both Squat and RDL marked done before finishing, got ' + doneNames.join(','));
+      click(d.getElementById('finishBtn'));
+      ok(d.getElementById('screenTitle').textContent === 'Workout', 'finishing the Legs session returns home');
+
+      // ---- Verify the exercise list + order carries forward to a NEW Legs session ----
+      click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'legs'));
+      const legRows = [...d.querySelectorAll('.ex-row')].map(r => r.querySelector('.ex-name').textContent);
+      ok(legRows.join(',') === 'Squat,RDL', 'new Legs session carries forward BOTH exercises in the order they were logged last time, not all 5 seed exercises, got ' + legRows.join(','));
+      ok(!findRow('Leg Press'), 'Leg Press — an untouched SEED_EXERCISES.legs name — does NOT leak into the carried-forward list');
+      click(d.getElementById('backBtn'));   // done testing Legs, discard
+
+      // ---- Remove a custom exercise + skip a carried-forward exercise (Push now has real history too) ----
       click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'push'));
+      ok(d.querySelectorAll('.ex-row').length === 1, 'Push carry-forward mode: only Bench Press (last time\'s actual exercise) shows, got ' + d.querySelectorAll('.ex-row').length);
       click(d.getElementById('addExerciseBtn'));   // prompt stubbed to 'Cable Fly'
       let cableRow = findRow('Cable Fly');
-      ok(!!cableRow, 'Cable Fly exists as a custom exercise on Push');
-      ok(!!cableRow.querySelector('[data-remove-ex]'), 'custom exercise shows a remove button');
-      ok(!findRow('Bench Press').querySelector('[data-remove-ex]'), 'seed exercise (Bench Press) has no remove button');
+      ok(!!cableRow, 'Cable Fly added today appears in the list');
+      ok(!!cableRow.querySelector('[data-remove-ex]'), 'exercise added today shows a remove button');
+      ok(!!findRow('Bench Press').querySelector('[data-remove-ex]'), 'carried-forward exercise (Bench Press) ALSO shows a remove button now — no protected-seed concept once real history exists');
       click(cableRow.querySelector('[data-remove-ex]'));
-      ok(!findRow('Cable Fly'), 'Cable Fly removed from the exercise list after confirming removal');
+      ok(!findRow('Cable Fly'), 'Cable Fly removed from today\'s list after confirming');
+      click(findRow('Bench Press').querySelector('[data-remove-ex]'));
+      ok(!findRow('Bench Press'), 'skipping Bench Press for today removes it from today\'s list too');
+      ok(d.querySelectorAll('.ex-row').length === 0, 'both skipped -> empty list for today, got ' + d.querySelectorAll('.ex-row').length);
+      click(d.getElementById('backBtn'));   // discard this Push session too (nothing logged, no confirm needed)
+
+      // ---- Skip-for-today is session-local only — doesn't persist to the NEXT session ----
+      click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'push'));
+      ok(!!findRow('Bench Press'), 'Bench Press is back on a fresh Push session — skipping it last time was session-local, not permanent');
       click(d.getElementById('backBtn'));   // discard this Push session too
 
       // ---- History: delete an individual set, then delete a whole session ----
+      // Two finished sessions exist now: the original Push/Bench-Press one from
+      // the top of the test, and the Legs/Squat+RDL one from the carry-forward
+      // test above. Find the Push one by its split label rather than assuming
+      // sort order.
       click(d.getElementById('historyLink'));
       cards = d.querySelectorAll('.session-card');
-      ok(cards.length === 1, 'still one finished session in history (the Bench Press one from earlier), got ' + cards.length);
-      click(cards[0].querySelector('.session-head'));
+      ok(cards.length === 2, 'two finished sessions in history (Push + Legs), got ' + cards.length);
+      let pushCard = [...cards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      ok(!!pushCard, 'the Push/Bench-Press session is findable by its split label');
+      click(pushCard.querySelector('.session-head'));
       cards = d.querySelectorAll('.session-card');
-      click(cards[0].querySelector('.session-detail [data-edit-toggle]'));   // enter edit mode to reach delete/edit controls
+      pushCard = [...cards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      click(pushCard.querySelector('.session-detail [data-edit-toggle]'));   // enter edit mode to reach delete/edit controls
       cards = d.querySelectorAll('.session-card');
-      let histSetRows = cards[0].querySelectorAll('.session-detail .set-list .set-row');
+      pushCard = [...cards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      let histSetRows = pushCard.querySelectorAll('.session-detail .set-list .set-row');
       ok(histSetRows.length === 2, 'history detail shows 2 editable set rows for the finished session, got ' + histSetRows.length);
       click(histSetRows[1].querySelector('[data-del-set]'));
       cards = d.querySelectorAll('.session-card');
-      histSetRows = cards[0].querySelectorAll('.session-detail .set-list .set-row');
+      pushCard = [...cards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      histSetRows = pushCard.querySelectorAll('.session-detail .set-list .set-row');
       ok(histSetRows.length === 1, 'deleting a set from history persists — one set row remains, got ' + histSetRows.length);
 
+      click(pushCard.querySelector('.session-detail .session-del-btn'));
+      cards = d.querySelectorAll('.session-card');
+      ok(cards.length === 1, 'deleting the Push workout leaves only the Legs one, got ' + cards.length);
+
+      // clear the remaining Legs session too, to reach the true empty state before the reminder-banner test below
+      click(cards[0].querySelector('.session-head'));
+      cards = d.querySelectorAll('.session-card');
+      click(cards[0].querySelector('.session-detail [data-edit-toggle]'));
+      cards = d.querySelectorAll('.session-card');
       click(cards[0].querySelector('.session-detail .session-del-btn'));
       cards = d.querySelectorAll('.session-card');
-      ok(cards.length === 0, 'deleting the whole workout from history removes its card, got ' + cards.length);
+      ok(cards.length === 0, 'deleting the remaining workout empties history, got ' + cards.length);
       ok(d.querySelector('.empty'), 'history now shows the empty state');
 
       // ---- Export reminder banner ----
