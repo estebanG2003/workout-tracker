@@ -65,6 +65,24 @@ iframe.addEventListener('load', () => {
       click(body.querySelector('[data-wadj="2.5"]')); // +5 total from 0
       ok(body.querySelector('#wVal').textContent === '5', 'weight nudges accumulate: 0 -> 2.5 -> 5, got ' + body.querySelector('#wVal').textContent);
       ok(!body.querySelector('#weightRow').classList.contains('muted-row'), 'Weight row un-mutes immediately once weight is nudged above 0');
+
+      // ---- Weight can be decreased too, mirrored around the value; clamps at 0 ----
+      const weightRow = body.querySelector('#weightRow');
+      const wadjButtons = [...weightRow.querySelectorAll('[data-wadj]')].map(b => b.dataset.wadj);
+      ok(wadjButtons.indexOf('-10') < wadjButtons.indexOf('2.5'), 'decrement buttons come before the increment buttons in DOM order');
+      ok(weightRow.querySelector('#wVal').compareDocumentPosition(weightRow.querySelector('[data-wadj="-2.5"]')) & Node.DOCUMENT_POSITION_PRECEDING, 'decrement group sits before the value');
+      ok(weightRow.querySelector('#wVal').compareDocumentPosition(weightRow.querySelector('[data-wadj="2.5"]')) & Node.DOCUMENT_POSITION_FOLLOWING, 'increment group sits after the value');
+      click(body.querySelector('[data-wadj="-2.5"]'));
+      body = findRow('Bench Press').querySelector('.ex-body');
+      ok(body.querySelector('#wVal').textContent === '2.5', 'decrement button reduces weight: 5 -> 2.5, got ' + body.querySelector('#wVal').textContent);
+      click(body.querySelector('[data-wadj="-10"]'));
+      body = findRow('Bench Press').querySelector('.ex-body');
+      ok(body.querySelector('#wVal').textContent === '0', 'decrementing below 0 clamps at 0 instead of going negative, got ' + body.querySelector('#wVal').textContent);
+      ok(body.querySelector('#weightRow').classList.contains('muted-row'), 'Weight row re-mutes once decremented back to 0');
+      click(body.querySelector('[data-wadj="2.5"]'));
+      body = findRow('Bench Press').querySelector('.ex-body');
+      click(body.querySelector('[data-wadj="2.5"]')); // back to 5 for the rest of this flow
+
       for (let i = 0; i < 8; i++) click(body.querySelector('[data-radj="1"]'));
       ok(body.querySelector('#rVal').textContent === '8', 'reps stepper reaches 8, got ' + body.querySelector('#rVal').textContent);
       click(body.querySelector('#logBtn'));   // re-render happens here
@@ -260,6 +278,8 @@ iframe.addEventListener('load', () => {
       ok(!!cableRow, 'Cable Fly added today appears in the list');
       ok(!!cableRow.querySelector('[data-remove-ex]'), 'exercise added today shows a remove button');
       ok(!!findRow('Bench Press').querySelector('[data-remove-ex]'), 'carried-forward exercise (Bench Press) ALSO shows a remove button now — no protected-seed concept once real history exists');
+      const headRight = cableRow.querySelector('.ex-head-right');
+      ok(headRight.querySelector('.ex-summary').compareDocumentPosition(headRight.querySelector('[data-remove-ex]')) & Node.DOCUMENT_POSITION_FOLLOWING, 'remove button sits AFTER the summary text (trailing edge), not sandwiched between name and summary');
       click(cableRow.querySelector('[data-remove-ex]'));
       ok(!findRow('Cable Fly'), 'Cable Fly removed from today\'s list after confirming');
       click(findRow('Bench Press').querySelector('[data-remove-ex]'));

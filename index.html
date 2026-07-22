@@ -163,10 +163,14 @@
        there) doesn't compete visually with an irrelevant control. */
     .ctrl-row.muted-row { opacity: .5; }
     .ctrl-label { width: 56px; flex: 0 0 auto; font-size: 13px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
-    .nudge-btns { display: flex; gap: 6px; flex: 1 1 auto; }
+    /* Weight row has two of these (mirrored: decrements left of the value,
+       increments right), so each button gets less room than the old
+       single-group layout — tightened padding/font to compensate. */
+    .nudge-btns { display: flex; gap: 5px; flex: 1 1 0; min-width: 0; }
     .nudge-btns button {
       flex: 1; border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
-      padding: 10px 4px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer;
+      padding: 9px 2px; border-radius: 10px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+      min-width: 0;
     }
     .nudge-btns button:active { background: var(--accent); color: #fff; border-color: var(--accent); }
     .cur-val {
@@ -581,8 +585,8 @@
     head.className = 'ex-head';
     head.innerHTML = `<span class="ex-name">${escapeHtml(name)}</span>
       <span class="ex-head-right">
-        ${removable ? '<button class="set-icon-btn danger" data-remove-ex aria-label="remove exercise">✕</button>' : ''}
         <span class="ex-summary">${todaySets.length ? formatSets(todaySets) : (lastSets.length ? 'Last: ' + formatSets(lastSets) : 'New')}</span>
+        ${removable ? '<button class="set-icon-btn danger" data-remove-ex aria-label="remove exercise">✕</button>' : ''}
       </span>`;
     head.onclick = () => { expandedExercise = expanded ? null : name; render(); };
     const removeExBtn = head.querySelector('[data-remove-ex]');
@@ -621,13 +625,17 @@
         <div class="ref-last">Last time<span class="ref-val">${lastSets.length ? formatSets(lastSets) : 'No previous data'}</span></div>
         ${todaySets.length ? `<div class="ex-ref">Today</div><div class="set-list" data-set-list>${setRowsHtml(todaySets, editingHere, flashHere ? todaySets.length - 1 : null)}</div>` : ''}
         <div class="ctrl-row${weightIrrelevant() ? ' muted-row' : ''}" id="weightRow">
-          <span class="ctrl-label">Weight</span>
+          <div class="nudge-btns">
+            <button data-wadj="-10">−10</button>
+            <button data-wadj="-5">−5</button>
+            <button data-wadj="-2.5">−2.5</button>
+          </div>
+          <span class="cur-val" id="wVal">${d.weight}</span>
           <div class="nudge-btns">
             <button data-wadj="2.5">+2.5</button>
             <button data-wadj="5">+5</button>
             <button data-wadj="10">+10</button>
           </div>
-          <span class="cur-val" id="wVal">${d.weight}</span>
         </div>
         <div class="ctrl-row">
           <span class="ctrl-label">Reps</span>
@@ -645,7 +653,7 @@
 
       body.querySelectorAll('[data-wadj]').forEach(b => {
         b.onclick = () => {
-          d.weight = Math.round((d.weight + parseFloat(b.dataset.wadj)) * 10) / 10;
+          d.weight = Math.max(0, Math.round((d.weight + parseFloat(b.dataset.wadj)) * 10) / 10);
           body.querySelector('#wVal').textContent = d.weight;
           body.querySelector('#weightRow').classList.toggle('muted-row', weightIrrelevant());
         };
