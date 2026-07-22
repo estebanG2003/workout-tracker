@@ -2,7 +2,9 @@
    Run: node test-model.js    (no dependencies) */
 const { SPLITS, SEED_EXERCISES, createStore, createExercises, sortSessionsDesc,
         formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
-        hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv } = require('./model.js');
+        hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv,
+        exportReminderDue, toJSON, fromJSON, mergeSessions,
+        MAX_WEIGHT, MAX_REPS } = require('./model.js');
 
 let pass = 0, fail = 0;
 function ok(cond, msg) {
@@ -229,6 +231,124 @@ console.log('HSV <-> RGB (color picker)');
   ok(Math.round(h) === 0 && s === 1 && v === 1, 'rgbToHsv red -> h0 s1 v1');
   const rt = (r, g, b) => { const [H, S, V] = rgbToHsv(r, g, b); return hsvToRgb(H, S, V); };
   ok(eq(rt(59, 130, 246), [59, 130, 246]), 'round-trip #3b82f6');
+}
+
+console.log('deleteSet');
+{
+  const s = createStore(memStorage()).load();
+  const session = s.startSession('push');
+  s.logSet(session, 'Bench Press', 135, 8);
+  s.logSet(session, 'Bench Press', 135, 7);
+  s.logSet(session, 'Dips', 0, 12);
+  ok(s.deleteSet(session, 'Bench Press', 0) === true, 'deleteSet returns true on success');
+  ok(session.entries.find(e => e.exercise === 'Bench Press').sets.length === 1, 'first set removed, one remains');
+  ok(session.entries.find(e => e.exercise === 'Bench Press').sets[0].reps === 7, 'remaining set is the correct one (index 0 removed, not last)');
+  ok(s.deleteSet(session, 'Bench Press', 0) === true, 'deleting the last remaining set succeeds');
+  ok(!session.entries.some(e => e.exercise === 'Bench Press'), 'entry removed entirely once its sets are empty');
+  ok(session.entries.some(e => e.exercise === 'Dips'), 'unrelated entry (Dips) untouched');
+  ok(s.deleteSet(session, 'Squat', 0) === false, 'deleteSet on an exercise with no entry returns false');
+  ok(s.deleteSet(session, 'Dips', 5) === false, 'deleteSet with an out-of-range index returns false');
+}
+
+console.log('updateSet');
+{
+  const s = createStore(memStorage()).load();
+  const session = s.startSession('legs');
+  s.logSet(session, 'Squat', 135, 8);
+  const updated = s.updateSet(session, 'Squat', 0, 145, 6);
+  ok(updated.weight === 145 && updated.reps === 6, 'updateSet returns the updated set');
+  ok(session.entries[0].sets[0].weight === 145 && session.entries[0].sets[0].reps === 6, 'the set in place was mutated');
+  ok(s.updateSet(session, 'Squat', 0, 145, 0) === null, 'updateSet rejects zero reps, same rule as logSet');
+  ok(session.entries[0].sets[0].reps === 6, 'rejected update leaves the original set untouched');
+  ok(s.updateSet(session, 'Squat', 9, 100, 5) === null, 'updateSet with an out-of-range index returns null');
+  ok(s.updateSet(session, 'Bench Press', 0, 100, 5) === null, 'updateSet on a nonexistent exercise entry returns null');
+  const clamped = s.updateSet(session, 'Squat', 0, MAX_WEIGHT + 500, MAX_REPS + 500);
+  ok(clamped.weight === MAX_WEIGHT && clamped.reps === MAX_REPS, 'updateSet clamps weight/reps to sane maximums, got ' + JSON.stringify(clamped));
+}
+
+console.log('logSet clamps to sane maximums');
+{
+  const s = createStore(memStorage()).load();
+  const session = s.startSession('push');
+  const set = s.logSet(session, 'Bench Press', MAX_WEIGHT + 1000, MAX_REPS + 1000);
+  ok(set.weight === MAX_WEIGHT && set.reps === MAX_REPS, 'logSet clamps runaway weight/reps values, got ' + JSON.stringify(set));
+}
+
+console.log('store.sessionById / store.deleteSession');
+{
+  const storage = memStorage();
+  const s = createStore(storage).load();
+  const a = s.startSession('push'); a.date = 100; s.logSet(a, 'Bench Press', 100, 8); s.finishSession(a);
+  const b = s.startSession('pull'); b.date = 200; s.logSet(b, 'Pull-ups', 0, 10); s.finishSession(b);
+
+  ok(s.sessionById(a.id).id === a.id, 'sessionById finds the right session');
+  ok(s.sessionById('nope') === null, 'sessionById returns null for an unknown id');
+
+  ok(s.deleteSession(a.id) === true, 'deleteSession returns true on success');
+  ok(s.sessions.length === 1 && s.sessions[0].id === b.id, 'only the targeted session was removed');
+  ok(s.deleteSession('nope') === false, 'deleteSession on an unknown id returns false');
+
+  // persists
+  const s2 = createStore(storage).load();
+  ok(s2.sessions.length === 1, 'session deletion persisted across reload');
+}
+
+console.log('createExercises — removeCustom');
+{
+  const storage = memStorage();
+  const ex = createExercises(storage);
+  ex.addCustom('push', 'Cable Fly');
+  ok(ex.forSplit('push').includes('Cable Fly'), 'sanity: Cable Fly was added');
+  ok(ex.removeCustom('push', 'Cable Fly') === true, 'removeCustom returns true on success');
+  ok(!ex.forSplit('push').includes('Cable Fly'), 'Cable Fly no longer in the split list');
+  ok(ex.removeCustom('push', 'Bench Press') === false, 'removeCustom refuses to remove a seed exercise');
+  ok(ex.forSplit('push').includes('Bench Press'), 'seed exercise Bench Press untouched');
+  ok(ex.removeCustom('push', 'Nonexistent') === false, 'removeCustom on an unknown name returns false');
+
+  const ex2 = createExercises(storage);
+  ok(!ex2.forSplit('push').includes('Cable Fly'), 'removal persists across reload');
+}
+
+console.log('exportReminderDue');
+{
+  const DAY = 24 * 60 * 60 * 1000;
+  ok(exportReminderDue([], 0, Date.now()) === false, 'no sessions at all -> never due');
+  const few = [{ id: 'a', date: 1000 }, { id: 'b', date: 2000 }];
+  ok(exportReminderDue(few, 0, 1000) === false, 'a couple pending sessions, freshly started -> not due yet');
+  ok(exportReminderDue(few, 0, 15 * DAY) === true, 'never exported and oldest pending session is 15 days old -> due');
+  const many = Array.from({ length: 8 }, (_, i) => ({ id: 'x' + i, date: i + 1 }));
+  ok(exportReminderDue(many, 0, 5) === true, '8+ pending sessions is due regardless of age');
+  ok(exportReminderDue(few, 500, 500 + 10 * DAY) === false, 'exported recently, only 10 days since last export -> not due');
+  ok(exportReminderDue(few, 500, 500 + 20 * DAY) === true, '20 days since last export with pending sessions -> due');
+  ok(exportReminderDue(few, 5000, 6000) === false, 'everything already exported (lastExportTs after all session dates) -> not due');
+}
+
+console.log('toJSON / fromJSON / mergeSessions (backup + restore)');
+{
+  const s1 = { id: 's1', date: 100, split: 'push', entries: [{ exercise: 'Bench Press', sets: [{ weight: 135, reps: 8 }] }] };
+  const s2 = { id: 's2', date: 200, split: 'legs', entries: [{ exercise: 'Squat', sets: [{ weight: 185, reps: 5 }] }] };
+  const json = toJSON([s1, s2]);
+  ok(typeof json === 'string' && json.includes('Bench Press'), 'toJSON produces a JSON string containing session data');
+
+  const parsed = fromJSON(json);
+  ok(Array.isArray(parsed) && parsed.length === 2, 'fromJSON round-trips back to an array of the same sessions');
+  ok(parsed[0].id === 's1' && parsed[1].id === 's2', 'session identity preserved through round-trip');
+
+  let threw = false;
+  try { fromJSON('not valid json{{'); } catch { threw = true; }
+  ok(threw, 'fromJSON throws on invalid JSON');
+
+  threw = false;
+  try { fromJSON('{"not":"an array"}'); } catch { threw = true; }
+  ok(threw, 'fromJSON throws when the parsed value is not an array of session-shaped objects');
+
+  threw = false;
+  try { fromJSON('[{"id":"x"}]'); } catch { threw = true; }
+  ok(threw, 'fromJSON throws when an entry is missing required session fields');
+
+  const merged = mergeSessions([s1], [s1, s2]);
+  ok(merged.length === 2, 'mergeSessions dedupes by id — s1 already present is not duplicated');
+  ok(merged.some(s => s.id === 's1') && merged.some(s => s.id === 's2'), 'merged set contains both sessions');
 }
 
 console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + `  (${pass} passed, ${fail} failed)`);

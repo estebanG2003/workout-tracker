@@ -18,6 +18,10 @@
 })(typeof self !== 'undefined' ? self : this, function () {
 
   const SPLITS = ['push', 'pull', 'legs'];
+  /* Sanity clamps, not realism limits — a guard against a runaway nudge/stepper
+     tap-storm or bad input, not a claim about what's humanly liftable. */
+  const MAX_WEIGHT = 2000;
+  const MAX_REPS = 200;
 
   const SEED_EXERCISES = {
     push: ['Bench Press', 'Overhead Press', 'Incline Press', 'Triceps Pushdown', 'Dips'],
@@ -96,8 +100,8 @@
          since a set with zero reps didn't happen. Returns the set object on
          success, null if rejected. */
       logSet(session, exercise, weight, reps) {
-        const w = Math.max(0, Number(weight) || 0);
-        const r = Math.max(0, Math.round(Number(reps) || 0));
+        const w = Math.min(MAX_WEIGHT, Math.max(0, Number(weight) || 0));
+        const r = Math.min(MAX_REPS, Math.max(0, Math.round(Number(reps) || 0)));
         if (r <= 0) return null;
         let entry = session.entries.find(en => en.exercise === exercise);
         if (!entry) { entry = { exercise, sets: [] }; session.entries.push(entry); }
@@ -106,8 +110,48 @@
         return set;
       },
 
+      /* Removes set at `index` from `exercise`'s entry in `session` (in place).
+         Drops the entry entirely once its last set is removed, so an exercise
+         with no sets doesn't linger as an empty entry. Works on any session
+         object — active (unsaved) or one pulled from store.sessions (caller
+         must call store.save() afterward for the latter). */
+      deleteSet(session, exercise, index) {
+        const entry = session.entries.find(en => en.exercise === exercise);
+        if (!entry || index < 0 || index >= entry.sets.length) return false;
+        entry.sets.splice(index, 1);
+        if (entry.sets.length === 0) {
+          session.entries = session.entries.filter(en => en !== entry);
+        }
+        return true;
+      },
+
+      /* Same rejection/clamp rules as logSet (reps must be > 0). Mutates the
+         set in place; caller saves if the session is already persisted. */
+      updateSet(session, exercise, index, weight, reps) {
+        const entry = session.entries.find(en => en.exercise === exercise);
+        if (!entry || index < 0 || index >= entry.sets.length) return null;
+        const w = Math.min(MAX_WEIGHT, Math.max(0, Number(weight) || 0));
+        const r = Math.min(MAX_REPS, Math.max(0, Math.round(Number(reps) || 0)));
+        if (r <= 0) return null;
+        const set = entry.sets[index];
+        set.weight = w; set.reps = r;
+        return set;
+      },
+
       totalSets(session) {
         return session.entries.reduce((n, en) => n + en.sets.length, 0);
+      },
+
+      sessionById(id) {
+        return this.sessions.find(s => s.id === id) || null;
+      },
+
+      deleteSession(id) {
+        const before = this.sessions.length;
+        this.sessions = this.sessions.filter(s => s.id !== id);
+        if (this.sessions.length === before) return false;
+        this.save();
+        return true;
       },
 
       finishSession(session) {
@@ -140,6 +184,19 @@
         custom[split].push(nm);
         storage.setItem(CUSTOM_KEY, JSON.stringify(custom));
         return nm;
+      },
+      /* Only ever removes a CUSTOM exercise — seed exercises are fixed and
+         always return false, since removing them would break the split's
+         baseline list for everyone, not just undo a typo. Past logged
+         entries for the removed name are untouched (history is immutable
+         here); it just disappears from future pick lists. */
+      removeCustom(split, name) {
+        assertSplit(split);
+        const before = custom[split].length;
+        custom[split] = custom[split].filter(e => e.toLowerCase() !== String(name).toLowerCase());
+        if (custom[split].length === before) return false;
+        storage.setItem(CUSTOM_KEY, JSON.stringify(custom));
+        return true;
       },
     };
   }
@@ -187,6 +244,46 @@
       get() { const v = storage.getItem(EKEY); return v ? Number(v) : 0; },
       set(ts) { storage.setItem(EKEY, String(ts)); },
     };
+  }
+
+  /* True once unexported data is either piling up (8+ sessions) or aging
+     (14+ days since the reference point) — local-only storage is the app's
+     single point of failure, so the History screen nudges toward exporting
+     before that becomes a real loss instead of staying silent forever. */
+  function exportReminderDue(sessions, lastExportTs, now) {
+    const pending = sessionsAfter(sessions, lastExportTs);
+    if (!pending.length) return false;
+    if (pending.length >= 8) return true;
+    const oldestPending = Math.min(...pending.map(s => s.date));
+    const reference = lastExportTs || oldestPending;
+    return (now - reference) >= 14 * 24 * 60 * 60 * 1000;
+  }
+
+  /* ---- JSON backup/restore — a round-trippable counterpart to the
+     human-readable markdown export (which can't be re-imported). ---- */
+  function toJSON(sessions) {
+    return JSON.stringify(sessions, null, 2);
+  }
+
+  function isSessionShaped(s) {
+    return s && typeof s === 'object' && typeof s.id === 'string' &&
+      typeof s.date === 'number' && typeof s.split === 'string' && Array.isArray(s.entries);
+  }
+
+  function fromJSON(text) {
+    const parsed = JSON.parse(text); // throws on invalid JSON, by design
+    if (!Array.isArray(parsed) || !parsed.every(isSessionShaped)) {
+      throw new Error('Not a valid workout backup: expected an array of sessions.');
+    }
+    return parsed;
+  }
+
+  /* Union of `existing` and `imported`, deduped by session id (existing
+     wins on conflict) — restoring a backup adds what's missing without
+     clobbering or duplicating sessions already on this device. */
+  function mergeSessions(existing, imported) {
+    const seen = new Set(existing.map(s => s.id));
+    return existing.concat(imported.filter(s => !seen.has(s.id)));
   }
 
   /* ---- Color helpers for the custom (RGB) theme presets ----
@@ -237,5 +334,7 @@
 
   return { SPLITS, SEED_EXERCISES, createStore, createExercises, sortSessionsDesc,
            formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
-           hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY };
+           exportReminderDue, toJSON, fromJSON, mergeSessions,
+           hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,
+           MAX_WEIGHT, MAX_REPS };
 });

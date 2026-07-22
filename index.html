@@ -97,13 +97,71 @@
       box-shadow: var(--shadow); overflow: hidden;
     }
     .ex-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; cursor: pointer; }
-    .ex-name { font-size: 16px; font-weight: 600; }
+    /* Exercise name is secondary — you already know what it is. The number
+       you're there to beat ("Last: 135×8") is what deserves the eye first. */
+    .ex-name { font-size: 14.5px; font-weight: 600; color: var(--text-dim); }
     .ex-row.done .ex-name::before { content: '✓ '; color: var(--accent); }
-    .ex-summary { font-size: 13px; color: var(--text-dim); text-align: right; flex: 0 1 auto; }
+    .ex-summary { font-size: 15.5px; font-weight: 700; color: var(--text); text-align: right; flex: 0 1 auto; }
     .ex-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
-    .ex-ref { font-size: 13px; color: var(--text-dim); padding: 12px 0 4px; }
-    .ex-ref b { color: var(--text); font-weight: 600; }
-    .ctrl-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+    .ex-ref { font-size: 13px; color: var(--text-dim); padding: 10px 0 2px; }
+    /* "Last time" is the one number worth a fast glance mid-set — small
+       uppercase label, big bold value underneath, like a stat readout. */
+    .ref-last { font-size: 12px; color: var(--text-dim); font-weight: 700; text-transform: uppercase;
+      letter-spacing: .05em; padding: 10px 0 0; }
+    .ref-val { display: block; font-size: 21px; color: var(--text); font-weight: 800;
+      font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .ex-head-right { display: flex; align-items: center; gap: 8px; }
+
+    /* ---------- Editable set rows (active session + history) ---------- */
+    .set-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 2px; }
+    .set-row { display: flex; align-items: center; gap: 10px; }
+    .set-txt { flex: 1 1 auto; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    /* 40px+ tap targets, not 28px — these sit right next to a destructive
+       delete action, and mid-set fingers are not precise. */
+    .set-icon-btn {
+      border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim);
+      width: 40px; height: 40px; border-radius: 10px; font-size: 15px; cursor: pointer; flex: 0 0 auto;
+      display: grid; place-items: center; line-height: 1;
+    }
+    .set-icon-btn.danger { color: var(--danger); }
+    .set-icon-btn.save { color: #16a34a; }
+    .set-row.editing { background: var(--surface-2); border-radius: 10px; padding: 6px 8px; }
+    .set-in {
+      width: 56px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+      border-radius: 8px; padding: 6px 2px; font-size: 14px; text-align: center; font-variant-numeric: tabular-nums;
+    }
+    .set-x { color: var(--text-dim); font-size: 13px; }
+    .session-del-btn { margin-top: 14px; }
+
+    /* Brief positive-feedback flash on the set row you just logged. */
+    @keyframes flashLog { 0% { background: var(--accent); } 100% { background: transparent; } }
+    .set-row.just-logged { animation: flashLog 700ms ease-out; border-radius: 10px; }
+
+    /* History: read-only by default (a journal, not a form) — editing
+       controls only appear once "Edit" is tapped. */
+    .sd-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 0 2px; }
+    .sd-toolbar-label { font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: .05em; }
+    .edit-toggle {
+      border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim);
+      padding: 6px 14px; border-radius: 9px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .edit-toggle.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ---------- Export reminder banner ---------- */
+    .reminder-banner {
+      background: var(--accent-dim); border: 1px solid var(--accent); color: var(--text);
+      border-radius: var(--radius); padding: 12px 14px; font-size: 13.5px; margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    }
+    .reminder-banner button {
+      border: none; background: var(--accent); color: #fff; padding: 8px 12px; border-radius: 9px;
+      font-size: 13px; font-weight: 600; cursor: pointer; flex: 0 0 auto;
+    }
+    .ctrl-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; transition: opacity .15s; }
+    /* Dims the Weight row when it's sitting at 0 with no weighted history —
+       e.g. Pull-ups/Dips — so reps (the variable that actually matters
+       there) doesn't compete visually with an irrelevant control. */
+    .ctrl-row.muted-row { opacity: .5; }
     .ctrl-label { width: 56px; flex: 0 0 auto; font-size: 13px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
     .nudge-btns { display: flex; gap: 6px; flex: 1 1 auto; }
     .nudge-btns button {
@@ -174,6 +232,17 @@
     .swatch.on::after { content: '✓'; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 18px; }
     .remove-custom { display: block; width: 100%; margin-top: 12px; border: 1px solid var(--border); background: transparent; color: var(--text-dim); padding: 9px; border-radius: 10px; font-size: 13.5px; font-weight: 500; cursor: pointer; }
     .remove-custom[hidden] { display: none; }
+    /* Custom color picker tucked behind a disclosure — a full HSV picker
+       doesn't deserve top billing in a tool opened in 10-second bursts
+       mid-workout, but it's still one tap away for anyone who wants it. */
+    .custom-color-details { margin-top: 14px; }
+    .custom-color-details summary {
+      cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--accent); list-style: none;
+    }
+    .custom-color-details summary::-webkit-details-marker { display: none; }
+    .custom-color-details summary::before { content: '+ '; }
+    .custom-color-details[open] summary::before { content: '\2212 '; }
+    .custom-color-details[open] summary { margin-bottom: 12px; }
     .sv-square {
       position: relative; width: 100%; height: 168px; border-radius: 12px; border: 1px solid var(--border);
       touch-action: none; cursor: crosshair; overflow: hidden;
@@ -240,17 +309,24 @@
         <label>Theme color</label>
         <div class="swatches" id="swatches"></div>
         <button class="remove-custom" id="removeCustom" hidden>Remove this custom color</button>
+        <details class="custom-color-details" id="customColorDetails">
+          <summary>Custom color</summary>
+          <div class="sv-square" id="svSquare"><div class="sv-handle" id="svHandle"></div></div>
+          <input type="range" min="0" max="360" id="hueIn" class="hue-slider" aria-label="hue" />
+          <div class="picker-foot">
+            <div class="rgb-preview" id="rgbPreview"></div>
+            <div class="pick-hex" id="pickHex">#000000</div>
+          </div>
+          <button class="add-preset-btn" id="addPreset">Use color &amp; save as preset</button>
+        </details>
       </div>
 
       <div class="set-section">
-        <label>Custom color</label>
-        <div class="sv-square" id="svSquare"><div class="sv-handle" id="svHandle"></div></div>
-        <input type="range" min="0" max="360" id="hueIn" class="hue-slider" aria-label="hue" />
-        <div class="picker-foot">
-          <div class="rgb-preview" id="rgbPreview"></div>
-          <div class="pick-hex" id="pickHex">#000000</div>
-        </div>
-        <button class="add-preset-btn" id="addPreset">Use color &amp; save as preset</button>
+        <label>Backup</label>
+        <button class="add-preset-btn" id="exportJsonBtn" style="margin-top:0;">⬇ Export JSON backup</button>
+        <button class="remove-custom" id="importJsonBtn" style="margin-top:10px;">⬆ Import JSON backup</button>
+        <input type="file" id="importFileInput" accept="application/json,.json" hidden>
+        <p class="set-hint">Unlike the markdown export, a JSON backup can be restored later — importing merges sessions back in without duplicating what's already here.</p>
       </div>
 
       <div class="set-section">
@@ -264,8 +340,9 @@
   <script src="model.js"></script>
   <script>
   /* View layer. Core data model lives in model.js (shared with tests). */
-  const { SPLITS, createStore, createExercises, sortSessionsDesc,
+  const { SPLITS, SEED_EXERCISES, createStore, createExercises, sortSessionsDesc,
           formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
+          exportReminderDue, toJSON, fromJSON, mergeSessions,
           hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv } = WorkoutModel;
   const store = createStore(localStorage);
   const exercises = createExercises(localStorage);
@@ -322,6 +399,12 @@
   let expandedExercise = null; // name of exercise expanded in the active view
   let draft = {};              // { [exercise]: { weight, reps } } — pending values before Log Set
   let expandedHistoryId = null;
+  /* { scope, exercise, index } | null — scope is 'active' for the in-progress
+     session, or a finished session's id for a history card. Only one set can
+     be mid-edit at a time across the whole app. */
+  let editingSet = null;
+  let justLoggedExercise = null; // one-shot flag: name of the exercise whose set-list should flash on this render
+  let historyEditId = null;      // id of the ONE history session card currently in edit mode (read-only otherwise)
 
   const screenEl = document.getElementById('screen');
   const titleEl = document.getElementById('screenTitle');
@@ -361,11 +444,14 @@
     screenEl.querySelectorAll('.split-btn').forEach(b => {
       b.onclick = () => {
         activeSession = store.startSession(b.dataset.split);
-        expandedExercise = null; draft = {};
+        expandedExercise = null; draft = {}; editingSet = null;
         view = 'active'; render();
       };
     });
-    document.getElementById('historyLink').onclick = () => { view = 'history'; render(); };
+    document.getElementById('historyLink').onclick = () => {
+      editingSet = null; expandedHistoryId = null; historyEditId = null;
+      view = 'history'; render();
+    };
   }
 
   function renderActive() {
@@ -383,6 +469,71 @@
     };
   }
 
+  /* Applies `fn` (a store.deleteSet/updateSet call) to the right session
+     object for `scope` — the in-memory active session (mutated, saved later
+     at Finish) or a finished session pulled from the store (mutated + saved
+     immediately). Returns whether the mutation actually took effect. */
+  function applySetMutation(scope, fn) {
+    const session = scope === 'active' ? activeSession : store.sessionById(scope);
+    if (!session) return false;
+    const result = fn(session);
+    const applied = result !== null && result !== false;
+    if (applied && scope !== 'active') store.save();
+    return applied;
+  }
+
+  /* Renders one exercise's logged sets as edit/delete-able rows. `editing`
+     is the current editingSet object if it belongs to this exercise, else
+     null — used to swap that one row into an inline edit form. `flashIndex`
+     (active-session logging only) briefly flashes the just-logged row. */
+  function setRowsHtml(sets, editing, flashIndex) {
+    return sets.map((set, i) => {
+      if (editing && editing.index === i) {
+        return `<div class="set-row editing" data-i="${i}">
+          <input type="number" inputmode="decimal" class="set-in edit-w" value="${set.weight}" step="0.5" min="0">
+          <span class="set-x">×</span>
+          <input type="number" inputmode="numeric" class="set-in edit-r" value="${set.reps}" min="1">
+          <button class="set-icon-btn save" data-save-set aria-label="save set">✓</button>
+          <button class="set-icon-btn" data-cancel-set aria-label="cancel edit">✕</button>
+        </div>`;
+      }
+      const flashCls = flashIndex === i ? ' just-logged' : '';
+      return `<div class="set-row${flashCls}" data-i="${i}">
+        <span class="set-txt">${set.weight}×${set.reps}</span>
+        <button class="set-icon-btn" data-edit-set="${i}" aria-label="edit set">✎</button>
+        <button class="set-icon-btn danger" data-del-set="${i}" aria-label="delete set">✕</button>
+      </div>`;
+    }).join('');
+  }
+
+  /* Wires the buttons/inputs produced by setRowsHtml for one exercise's
+     set-list container. `scope` is 'active' or a finished session's id. */
+  function wireSetList(container, exercise, scope) {
+    container.querySelectorAll('[data-edit-set]').forEach(b => {
+      b.onclick = () => { editingSet = { scope, exercise, index: +b.dataset.editSet }; render(); };
+    });
+    container.querySelectorAll('[data-del-set]').forEach(b => {
+      b.onclick = () => {
+        if (!window.confirm('Delete this set?')) return;
+        applySetMutation(scope, s => store.deleteSet(s, exercise, +b.dataset.delSet));
+        if (editingSet && editingSet.scope === scope && editingSet.exercise === exercise) editingSet = null;
+        render();
+      };
+    });
+    const editingRow = container.querySelector('.set-row.editing');
+    if (editingRow) {
+      editingRow.querySelector('[data-save-set]').onclick = () => {
+        const w = parseFloat(editingRow.querySelector('.edit-w').value);
+        const r = parseInt(editingRow.querySelector('.edit-r').value, 10);
+        const idx = +editingRow.dataset.i;
+        const applied = applySetMutation(scope, s => store.updateSet(s, exercise, idx, w, r));
+        if (!applied) { window.alert('Reps must be greater than 0.'); return; }
+        editingSet = null; render();
+      };
+      editingRow.querySelector('[data-cancel-set]').onclick = () => { editingSet = null; render(); };
+    }
+  }
+
   function renderExerciseRow(name) {
     const entry = activeSession.entries.find(e => e.exercise === name);
     const todaySets = entry ? entry.sets : [];
@@ -392,21 +543,42 @@
     const li = document.createElement('li');
     li.className = 'ex-row' + (expanded ? ' expanded' : '') + (todaySets.length ? ' done' : '');
 
+    const isCustom = !SEED_EXERCISES[activeSession.split].includes(name);
     const head = document.createElement('div');
     head.className = 'ex-head';
     head.innerHTML = `<span class="ex-name">${escapeHtml(name)}</span>
-      <span class="ex-summary">${todaySets.length ? formatSets(todaySets) : (lastSets.length ? 'Last: ' + formatSets(lastSets) : 'New')}</span>`;
+      <span class="ex-head-right">
+        ${isCustom ? '<button class="set-icon-btn danger" data-remove-ex aria-label="remove exercise">✕</button>' : ''}
+        <span class="ex-summary">${todaySets.length ? formatSets(todaySets) : (lastSets.length ? 'Last: ' + formatSets(lastSets) : 'New')}</span>
+      </span>`;
     head.onclick = () => { expandedExercise = expanded ? null : name; render(); };
+    const removeExBtn = head.querySelector('[data-remove-ex]');
+    if (removeExBtn) {
+      removeExBtn.onclick = (ev) => {
+        ev.stopPropagation();
+        const msg = todaySets.length
+          ? `Remove "${name}" from your exercise list? Sets already logged for it this workout will still be saved when you finish, but you won't be able to edit them here anymore.`
+          : `Remove "${name}" from your exercise list?`;
+        if (!window.confirm(msg)) return;
+        exercises.removeCustom(activeSession.split, name);
+        if (expandedExercise === name) expandedExercise = null;
+        render();
+      };
+    }
     li.appendChild(head);
 
     if (expanded) {
       const d = draftFor(name);
+      const editingHere = editingSet && editingSet.scope === 'active' && editingSet.exercise === name ? editingSet : null;
+      const flashHere = justLoggedExercise === name;
+      if (flashHere) justLoggedExercise = null; // one-shot: consume the flag for this render pass
+      const weightIrrelevant = () => d.weight === 0 && lastSets.every(s => s.weight === 0);
       const body = document.createElement('div');
       body.className = 'ex-body';
       body.innerHTML = `
-        <div class="ex-ref">Last time: <b>${lastSets.length ? formatSets(lastSets) : 'No previous data'}</b></div>
-        ${todaySets.length ? `<div class="ex-ref">Today: <b>${formatSets(todaySets)}</b></div>` : ''}
-        <div class="ctrl-row">
+        <div class="ref-last">Last time<span class="ref-val">${lastSets.length ? formatSets(lastSets) : 'No previous data'}</span></div>
+        ${todaySets.length ? `<div class="ex-ref">Today</div><div class="set-list" data-set-list>${setRowsHtml(todaySets, editingHere, flashHere ? todaySets.length - 1 : null)}</div>` : ''}
+        <div class="ctrl-row${weightIrrelevant() ? ' muted-row' : ''}" id="weightRow">
           <span class="ctrl-label">Weight</span>
           <div class="nudge-btns">
             <button data-wadj="2.5">+2.5</button>
@@ -426,10 +598,14 @@
         <button class="log-btn" id="logBtn">Log Set</button>`;
       li.appendChild(body);
 
+      const setListEl = body.querySelector('[data-set-list]');
+      if (setListEl) wireSetList(setListEl, name, 'active');
+
       body.querySelectorAll('[data-wadj]').forEach(b => {
         b.onclick = () => {
           d.weight = Math.round((d.weight + parseFloat(b.dataset.wadj)) * 10) / 10;
           body.querySelector('#wVal').textContent = d.weight;
+          body.querySelector('#weightRow').classList.toggle('muted-row', weightIrrelevant());
         };
       });
       body.querySelectorAll('[data-radj]').forEach(b => {
@@ -440,7 +616,7 @@
       });
       body.querySelector('#logBtn').onclick = () => {
         const set = store.logSet(activeSession, name, d.weight, d.reps);
-        if (set) { delete draft[name]; render(); }
+        if (set) { delete draft[name]; justLoggedExercise = name; render(); }
       };
     }
     return li;
@@ -449,15 +625,21 @@
   function renderHistory() {
     const sessions = sortSessionsDesc(store.sessions);
     const pendingCount = sessionsAfter(store.sessions, exportTracker.get()).length;
+    const reminderDue = exportReminderDue(store.sessions, exportTracker.get(), Date.now());
+    const banner = reminderDue
+      ? `<div class="reminder-banner"><span>${pendingCount} workout${pendingCount === 1 ? '' : 's'} not yet exported to your notes.</span><button id="reminderExportBtn">Export now</button></div>`
+      : '';
     const exportRow = `<button class="list-add" id="exportBtn">⬇ Export${pendingCount ? ` (${pendingCount} new)` : ''}</button>`;
     if (!sessions.length) {
-      screenEl.innerHTML = `<div class="empty"><div class="big">🏋️</div>No workouts logged yet.</div>${exportRow}`;
+      screenEl.innerHTML = `${banner}<div class="empty"><div class="big">🏋️</div>No workouts logged yet.</div>${exportRow}`;
     } else {
-      screenEl.innerHTML = `<ul class="session-list" id="sessList"></ul>${exportRow}`;
+      screenEl.innerHTML = `${banner}<ul class="session-list" id="sessList"></ul>${exportRow}`;
       const listEl = document.getElementById('sessList');
       sessions.forEach(s => listEl.appendChild(renderSessionCard(s)));
     }
     document.getElementById('exportBtn').onclick = exportHistory;
+    const reminderBtn = document.getElementById('reminderExportBtn');
+    if (reminderBtn) reminderBtn.onclick = exportHistory;
   }
 
   /* Downloads a .md file (unless a test hook intercepts it — see test-ui.html). */
@@ -489,14 +671,62 @@
     head.className = 'session-head';
     head.innerHTML = `<span class="session-split">${SPLIT_EMOJI[s.split]} ${SPLIT_LABEL[s.split]}</span>
       <span class="session-meta"><span class="session-date">${formatDate(s.date)}</span><span class="session-date">${totalSets} set${totalSets === 1 ? '' : 's'}</span></span>`;
-    head.onclick = () => { expandedHistoryId = expandedHistoryId === s.id ? null : s.id; render(); };
+    head.onclick = () => {
+      expandedHistoryId = expandedHistoryId === s.id ? null : s.id;
+      editingSet = null; historyEditId = null;
+      render();
+    };
     li.appendChild(head);
     if (expandedHistoryId === s.id) {
+      const isEditing = historyEditId === s.id;
       const detail = document.createElement('div');
       detail.className = 'session-detail';
-      detail.innerHTML = s.entries.map(e => `
-        <div class="sd-entry"><div class="sd-ex">${escapeHtml(e.exercise)}</div><div class="sd-sets">${formatSets(e.sets)}</div></div>`).join('')
-        || '<div class="sd-entry"><div class="sd-sets">No sets logged.</div></div>';
+
+      const toolbar = document.createElement('div');
+      toolbar.className = 'sd-toolbar';
+      toolbar.innerHTML = `<span class="sd-toolbar-label">Sets</span>
+        <button class="edit-toggle${isEditing ? ' on' : ''}" data-edit-toggle>${isEditing ? 'Done' : 'Edit'}</button>`;
+      toolbar.querySelector('[data-edit-toggle]').onclick = () => {
+        historyEditId = isEditing ? null : s.id;
+        editingSet = null;
+        render();
+      };
+      detail.appendChild(toolbar);
+
+      if (!s.entries.length) {
+        const emptyEl = document.createElement('div');
+        emptyEl.className = 'sd-entry';
+        emptyEl.innerHTML = '<div class="sd-sets">No sets logged.</div>';
+        detail.appendChild(emptyEl);
+      } else {
+        s.entries.forEach(e => {
+          const entryEl = document.createElement('div');
+          entryEl.className = 'sd-entry';
+          if (isEditing) {
+            entryEl.innerHTML = `<div class="sd-ex">${escapeHtml(e.exercise)}</div><div class="set-list"></div>`;
+            const editingHere = editingSet && editingSet.scope === s.id && editingSet.exercise === e.exercise ? editingSet : null;
+            const listEl = entryEl.querySelector('.set-list');
+            listEl.innerHTML = setRowsHtml(e.sets, editingHere);
+            wireSetList(listEl, e.exercise, s.id);
+          } else {
+            entryEl.innerHTML = `<div class="sd-ex">${escapeHtml(e.exercise)}</div><div class="sd-sets">${formatSets(e.sets)}</div>`;
+          }
+          detail.appendChild(entryEl);
+        });
+      }
+
+      if (isEditing) {
+        const delSessionBtn = document.createElement('button');
+        delSessionBtn.className = 'danger-btn session-del-btn';
+        delSessionBtn.textContent = 'Delete this workout';
+        delSessionBtn.onclick = () => {
+          if (!window.confirm('Delete this entire workout? This cannot be undone.')) return;
+          store.deleteSession(s.id);
+          expandedHistoryId = null; historyEditId = null;
+          render();
+        };
+        detail.appendChild(delSessionBtn);
+      }
       li.appendChild(detail);
     }
     return li;
@@ -508,12 +738,13 @@
       if (store.totalSets(activeSession) > 0 && !window.confirm('Discard this workout? Logged sets will be lost.')) return;
       activeSession = null;
     }
+    editingSet = null;
     view = 'home'; render();
   };
   finishBtn.onclick = () => {
     if (store.totalSets(activeSession) === 0 && !window.confirm('Finish with no sets logged?')) return;
     store.finishSession(activeSession);
-    activeSession = null; view = 'home'; render();
+    activeSession = null; editingSet = null; view = 'home'; render();
   };
 
   /* ---------- Settings sheet wiring (reused pattern from Grocery List) ---------- */
@@ -599,7 +830,36 @@
     if (!store.sessions.length) { settingsEl.hidden = true; return; }
     if (!window.confirm('Clear all workout history? This cannot be undone.')) return;
     store.sessions = []; store.save();
+    exportTracker.set(0); // no history left, so "pending" starts clean too
     settingsEl.hidden = true; render();
+  };
+
+  /* ---------- Backup (JSON export/import) ---------- */
+  document.getElementById('exportJsonBtn').onclick = () => {
+    download(`workout-backup-${localDateStr(Date.now())}.json`, toJSON(store.sessions));
+  };
+  const importFileInput = document.getElementById('importFileInput');
+  document.getElementById('importJsonBtn').onclick = () => importFileInput.click();
+  importFileInput.onchange = () => {
+    const file = importFileInput.files[0];
+    importFileInput.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let imported;
+      try { imported = fromJSON(reader.result); }
+      catch { window.alert('That file doesn\'t look like a valid workout backup.'); return; }
+      const before = store.sessions.length;
+      store.sessions = mergeSessions(store.sessions, imported);
+      store.save();
+      const added = store.sessions.length - before;
+      settingsEl.hidden = true;
+      render();
+      window.alert(added > 0
+        ? `Imported ${added} new session${added === 1 ? '' : 's'}.`
+        : 'Nothing new to import — all sessions in that backup are already here.');
+    };
+    reader.readAsText(file);
   };
 
   /* ---------- Boot ---------- */

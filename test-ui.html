@@ -20,6 +20,20 @@ iframe.addEventListener('load', () => {
   w.prompt = () => 'Cable Fly';
   w.confirm = () => true;
   w.alert = (msg) => { w.__lastAlert = msg; };
+  // Real FileReader.readAsText goes through Chromium's file-reading plumbing,
+  // which (like service workers) doesn't advance under --virtual-time-budget.
+  // Stub it to resolve via a plain setTimeout (which DOES advance), reading a
+  // `__testText` property the test attaches to its File objects directly —
+  // this still exercises the real File/DataTransfer/input.files/change-event
+  // wiring, just not Chromium's own blob-content-reading internals.
+  w.FileReader = function () {
+    this.readAsText = (file) => {
+      setTimeout(() => {
+        this.result = file.__testText !== undefined ? file.__testText : '';
+        if (this.onload) this.onload();
+      }, 0);
+    };
+  };
 
   function findRow(name) {
     return [...d.querySelectorAll('.ex-row')].find(r => r.querySelector('.ex-name').textContent === name);
@@ -44,11 +58,13 @@ iframe.addEventListener('load', () => {
       // ---- Expand + log two sets (re-query after every render-triggering click) ----
       let body = findRow('Bench Press').querySelector('.ex-body');
       ok(!!body, 'exercise body expands on tap');
-      ok(body.querySelector('.ex-ref b').textContent === 'No previous data', 'reference line reads "No previous data" for a fresh exercise');
+      ok(body.querySelector('.ref-val').textContent === 'No previous data', 'reference line reads "No previous data" for a fresh exercise');
+      ok(body.querySelector('#weightRow').classList.contains('muted-row'), 'Weight row starts muted — 0 weight, no prior weighted data');
       click(body.querySelector('[data-wadj="2.5"]'));
       body = findRow('Bench Press').querySelector('.ex-body'); // nudge handlers mutate in place, no re-render, but re-fetch defensively
       click(body.querySelector('[data-wadj="2.5"]')); // +5 total from 0
       ok(body.querySelector('#wVal').textContent === '5', 'weight nudges accumulate: 0 -> 2.5 -> 5, got ' + body.querySelector('#wVal').textContent);
+      ok(!body.querySelector('#weightRow').classList.contains('muted-row'), 'Weight row un-mutes immediately once weight is nudged above 0');
       for (let i = 0; i < 8; i++) click(body.querySelector('[data-radj="1"]'));
       ok(body.querySelector('#rVal').textContent === '8', 'reps stepper reaches 8, got ' + body.querySelector('#rVal').textContent);
       click(body.querySelector('#logBtn'));   // re-render happens here
@@ -56,6 +72,9 @@ iframe.addEventListener('load', () => {
       let benchRow = findRow('Bench Press');
       ok(benchRow.classList.contains('done'), 'Bench Press row marked done after logging a set');
       ok(benchRow.querySelector('.ex-summary').textContent === '5×8', 'summary shows 5×8 after logging, got ' + benchRow.querySelector('.ex-summary').textContent);
+      body = findRow('Bench Press').querySelector('.ex-body');
+      ok(body.querySelector('.set-row.just-logged') !== null, 'the just-logged set row gets the flash class');
+      ok(body.querySelector('.set-row.just-logged .set-txt').textContent === '5×8', 'the flashing row is the one just logged, got ' + body.querySelector('.set-row.just-logged .set-txt').textContent);
 
       // log a second set — the row stays expanded after logging (expandedExercise
       // is untouched by logSet), so no need to click the head again
@@ -65,6 +84,9 @@ iframe.addEventListener('load', () => {
       click(body.querySelector('#logBtn'));
       benchRow = findRow('Bench Press');
       ok(benchRow.querySelector('.ex-summary').textContent === '5×8, 5×8', 'two sets now shown for Bench Press, got ' + benchRow.querySelector('.ex-summary').textContent);
+      body = findRow('Bench Press').querySelector('.ex-body');
+      const flashedRows = body.querySelectorAll('.set-row.just-logged');
+      ok(flashedRows.length === 1 && flashedRows[0].dataset.i === '1', 'only the newest (second) set row flashes, not the first, got ' + flashedRows.length + ' flashed at index ' + (flashedRows[0] && flashedRows[0].dataset.i));
 
       // ---- Add custom exercise (prompt stubbed to "Cable Fly") ----
       click(d.getElementById('addExerciseBtn'));
@@ -83,9 +105,30 @@ iframe.addEventListener('load', () => {
       ok(cards.length === 1, 'one session in history, got ' + cards.length);
       click(cards[0].querySelector('.session-head'));   // re-render happens here
       cards = d.querySelectorAll('.session-card');       // re-query — old node is detached
-      const detail = cards[0].querySelector('.session-detail');
+      let detail = cards[0].querySelector('.session-detail');
       ok(!!detail, 'session card expands to detail');
-      ok(detail.textContent.includes('Bench Press') && detail.textContent.includes('5×8, 5×8'), 'history detail shows correct exercise + sets, got: ' + detail.textContent.replace(/\s+/g,' '));
+      ok(detail.textContent.includes('Bench Press'), 'history detail shows the correct exercise name, got: ' + detail.textContent.replace(/\s+/g,' '));
+
+      // ---- History is read-only by default (a journal), edit controls hidden until "Edit" is tapped ----
+      ok(detail.querySelector('.set-list') === null, 'history detail shows NO editable set-list by default, got: ' + detail.textContent.replace(/\s+/g,' '));
+      ok(detail.textContent.includes('5×8, 5×8'), 'read-only detail shows the sets as plain comma-joined text, got: ' + detail.textContent.replace(/\s+/g,' '));
+      ok(detail.querySelector('.session-del-btn') === null, 'delete-workout button is hidden by default (not in edit mode)');
+      const editToggle = detail.querySelector('[data-edit-toggle]');
+      ok(!!editToggle && editToggle.textContent === 'Edit', 'session detail shows an Edit toggle button, got ' + (editToggle && editToggle.textContent));
+
+      click(editToggle);
+      cards = d.querySelectorAll('.session-card');
+      detail = cards[0].querySelector('.session-detail');
+      ok(detail.querySelector('[data-edit-toggle]').textContent === 'Done', 'toggle now reads Done after entering edit mode');
+      ok(detail.querySelectorAll('.set-list .set-row').length === 2, 'history detail shows both sets as separate editable rows once editing, got ' + detail.querySelectorAll('.set-list .set-row').length);
+      ok([...detail.querySelectorAll('.set-txt')].every(el => el.textContent === '5×8'), 'each set row reads 5×8');
+      ok(!!detail.querySelector('.session-del-btn'), 'delete-workout button appears once in edit mode');
+
+      click(detail.querySelector('[data-edit-toggle]'));
+      cards = d.querySelectorAll('.session-card');
+      detail = cards[0].querySelector('.session-detail');
+      ok(detail.querySelector('.set-list') === null, 'tapping Done returns the card to read-only (no set-list)');
+      ok(detail.querySelector('.session-del-btn') === null, 'delete-workout button hides again after tapping Done');
 
       // ---- Export: intercept the download via the test hook instead of triggering a real file save ----
       let exportBtn = d.getElementById('exportBtn');
@@ -114,7 +157,7 @@ iframe.addEventListener('load', () => {
       ok(findRow('Bench Press').querySelector('.ex-summary').textContent === 'Last: 5×8, 5×8', 'new session shows "Last: 5×8, 5×8" for Bench Press, got ' + findRow('Bench Press').querySelector('.ex-summary').textContent);
       click(findRow('Bench Press').querySelector('.ex-head'));
       body = findRow('Bench Press').querySelector('.ex-body');
-      ok(body.querySelector('.ex-ref b').textContent === '5×8, 5×8', 'reference line shows last time\'s sets, got ' + body.querySelector('.ex-ref b').textContent);
+      ok(body.querySelector('.ref-val').textContent === '5×8, 5×8', 'reference line shows last time\'s sets, got ' + body.querySelector('.ref-val').textContent);
       ok(body.querySelector('#wVal').textContent === '5' && body.querySelector('#rVal').textContent === '8', 'weight/reps default from last time (first set): 5x8');
 
       // discard this second in-progress session so it doesn't pollute the settings test below
@@ -130,8 +173,195 @@ iframe.addEventListener('load', () => {
       const darkBtn = [...d.querySelectorAll('#appearance button')].find(b => b.dataset.v === 'dark');
       click(darkBtn);
       ok(d.documentElement.getAttribute('data-theme') === 'dark', 'appearance toggle sets data-theme=dark');
+
+      // ---- Custom color picker is tucked behind a closed-by-default disclosure ----
+      const colorDetails = d.getElementById('customColorDetails');
+      ok(!colorDetails.open, 'custom color picker starts collapsed');
+      // <summary>'s toggle is a native default action, which only fires for a
+      // TRUSTED click — dispatchEvent(new MouseEvent(...)) is untrusted and
+      // won't do it, so use the real .click() method here instead of our
+      // dispatchEvent-based click() helper.
+      colorDetails.querySelector('summary').click();
+      ok(colorDetails.open, 'clicking the summary expands the custom color picker');
+
       click(d.getElementById('closeSettings'));
       ok(settingsOverlay.hidden, 'settings sheet closes');
+
+      // ---- Edit / delete a logged set, in the active session ----
+      click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'legs'));
+      click(findRow('Squat').querySelector('.ex-head'));
+      let squatBody = findRow('Squat').querySelector('.ex-body');
+      click(squatBody.querySelector('[data-wadj="10"]'));       // weight 0 -> 10
+      for (let i = 0; i < 5; i++) click(squatBody.querySelector('[data-radj="1"]'));
+      click(squatBody.querySelector('#logBtn'));                // set 1: 10x5
+      squatBody = findRow('Squat').querySelector('.ex-body');
+      click(squatBody.querySelector('[data-wadj="10"]'));       // second set weight 10 -> 20
+      click(squatBody.querySelector('#logBtn'));                // set 2: 20x5
+      squatBody = findRow('Squat').querySelector('.ex-body');
+      let setRows = squatBody.querySelectorAll('.set-list .set-row');
+      ok(setRows.length === 2, 'two editable set rows shown for Squat, got ' + setRows.length);
+      ok(setRows[0].querySelector('.set-txt').textContent === '10×5', 'first set row shows 10×5, got ' + setRows[0].querySelector('.set-txt').textContent);
+
+      // edit the first set to 15x6
+      click(setRows[0].querySelector('[data-edit-set]'));
+      squatBody = findRow('Squat').querySelector('.ex-body');
+      let editingRow = squatBody.querySelector('.set-row.editing');
+      ok(!!editingRow, 'clicking edit turns that row into an inline edit form');
+      editingRow.querySelector('.edit-w').value = '15';
+      editingRow.querySelector('.edit-r').value = '6';
+      click(editingRow.querySelector('[data-save-set]'));
+      squatBody = findRow('Squat').querySelector('.ex-body');
+      setRows = squatBody.querySelectorAll('.set-list .set-row');
+      ok(setRows[0].querySelector('.set-txt').textContent === '15×6', 'edited set now shows 15×6, got ' + setRows[0].querySelector('.set-txt').textContent);
+
+      // cancel an edit leaves the value untouched
+      click(setRows[1].querySelector('[data-edit-set]'));
+      squatBody = findRow('Squat').querySelector('.ex-body');
+      editingRow = squatBody.querySelector('.set-row.editing');
+      editingRow.querySelector('.edit-w').value = '999';
+      click(editingRow.querySelector('[data-cancel-set]'));
+      squatBody = findRow('Squat').querySelector('.ex-body');
+      setRows = squatBody.querySelectorAll('.set-list .set-row');
+      ok(setRows[1].querySelector('.set-txt').textContent === '20×5', 'canceling an edit leaves the original value, got ' + setRows[1].querySelector('.set-txt').textContent);
+
+      // delete the second set
+      click(setRows[1].querySelector('[data-del-set]'));
+      squatBody = findRow('Squat').querySelector('.ex-body');
+      setRows = squatBody.querySelectorAll('.set-list .set-row');
+      ok(setRows.length === 1, 'one set row remains after deleting the second, got ' + setRows.length);
+      ok(findRow('Squat').querySelector('.ex-summary').textContent === '15×6', 'Squat summary reflects the surviving edited set, got ' + findRow('Squat').querySelector('.ex-summary').textContent);
+
+      // ---- Remove a custom exercise (added earlier this session as "Cable Fly" via stubbed prompt) ----
+      click(d.getElementById('backBtn'));   // discard this in-progress Legs session (confirm stubbed true)
+      click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'push'));
+      click(d.getElementById('addExerciseBtn'));   // prompt stubbed to 'Cable Fly'
+      let cableRow = findRow('Cable Fly');
+      ok(!!cableRow, 'Cable Fly exists as a custom exercise on Push');
+      ok(!!cableRow.querySelector('[data-remove-ex]'), 'custom exercise shows a remove button');
+      ok(!findRow('Bench Press').querySelector('[data-remove-ex]'), 'seed exercise (Bench Press) has no remove button');
+      click(cableRow.querySelector('[data-remove-ex]'));
+      ok(!findRow('Cable Fly'), 'Cable Fly removed from the exercise list after confirming removal');
+      click(d.getElementById('backBtn'));   // discard this Push session too
+
+      // ---- History: delete an individual set, then delete a whole session ----
+      click(d.getElementById('historyLink'));
+      cards = d.querySelectorAll('.session-card');
+      ok(cards.length === 1, 'still one finished session in history (the Bench Press one from earlier), got ' + cards.length);
+      click(cards[0].querySelector('.session-head'));
+      cards = d.querySelectorAll('.session-card');
+      click(cards[0].querySelector('.session-detail [data-edit-toggle]'));   // enter edit mode to reach delete/edit controls
+      cards = d.querySelectorAll('.session-card');
+      let histSetRows = cards[0].querySelectorAll('.session-detail .set-list .set-row');
+      ok(histSetRows.length === 2, 'history detail shows 2 editable set rows for the finished session, got ' + histSetRows.length);
+      click(histSetRows[1].querySelector('[data-del-set]'));
+      cards = d.querySelectorAll('.session-card');
+      histSetRows = cards[0].querySelectorAll('.session-detail .set-list .set-row');
+      ok(histSetRows.length === 1, 'deleting a set from history persists — one set row remains, got ' + histSetRows.length);
+
+      click(cards[0].querySelector('.session-detail .session-del-btn'));
+      cards = d.querySelectorAll('.session-card');
+      ok(cards.length === 0, 'deleting the whole workout from history removes its card, got ' + cards.length);
+      ok(d.querySelector('.empty'), 'history now shows the empty state');
+
+      // ---- Export reminder banner ----
+      ok(!d.querySelector('.reminder-banner'), 'no reminder banner with zero history');
+      click(d.getElementById('backBtn'));
+
+      /* Under --virtual-time-budget, Date.now() is frozen across purely
+         synchronous code and only advances across a real setTimeout tick —
+         so 8 sessions created back-to-back in a plain for-loop would all
+         get the SAME session.date, making them indistinguishable from the
+         reminder-banner's own "since" timestamp (sessionsAfter is strictly
+         `>`). Chaining each creation through a setTimeout forces the clock
+         to actually advance between sessions, like it would in real use. */
+      function createFinishedSession(i, done) {
+        setTimeout(() => {
+          click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'push'));
+          let br = findRow('Bench Press');
+          click(br.querySelector('.ex-head'));
+          let bb = findRow('Bench Press').querySelector('.ex-body');
+          click(bb.querySelector('[data-wadj="10"]'));
+          for (let r = 0; r < 5; r++) click(bb.querySelector('[data-radj="1"]'));
+          click(findRow('Bench Press').querySelector('.ex-body').querySelector('#logBtn'));
+          click(d.getElementById('finishBtn'));
+          if (i + 1 < 8) createFinishedSession(i + 1, done);
+          else done();
+        }, 5);
+      }
+
+      createFinishedSession(0, () => {
+        try {
+          click(d.getElementById('historyLink'));
+          const diagCardCount = d.querySelectorAll('.session-card').length;
+          ok(diagCardCount === 8, 'all 8 finished sessions present before the banner check, got ' + diagCardCount);
+          ok(!!d.querySelector('.reminder-banner'), '8 unexported sessions triggers the export reminder banner');
+          const reminderBtn = d.getElementById('reminderExportBtn');
+          ok(!!reminderBtn, 'reminder banner has an Export now button');
+          w.__exportHook = (filename, text) => { w.__capturedExport = { filename, text }; };
+          click(reminderBtn);
+          ok(!!w.__capturedExport, 'clicking the reminder banner\'s Export now button triggers an export');
+          ok(!d.querySelector('.reminder-banner'), 'reminder banner disappears immediately after exporting');
+
+          // ---- JSON backup: export then import (round-trip via a real File/FileReader) ----
+          click(d.getElementById('settingsBtn'));
+          w.__exportHook = (filename, text) => { w.__capturedExport = { filename, text }; };
+          click(d.getElementById('exportJsonBtn'));
+          ok(/^workout-backup-\d{4}-\d{2}-\d{2}\.json$/.test(w.__capturedExport.filename), 'JSON backup filename matches workout-backup-YYYY-MM-DD.json, got ' + w.__capturedExport.filename);
+          const backupJson = w.__capturedExport.text;
+          const backupSessionCount = JSON.parse(backupJson).length;
+          ok(backupSessionCount === 8, 'JSON backup contains all 8 sessions, got ' + backupSessionCount);
+
+          // wipe history, then restore from the captured backup
+          click(d.getElementById('clearHistory'));
+          click(d.getElementById('settingsBtn'));
+          const importInput = d.getElementById('importFileInput');
+          const dt = new w.DataTransfer();
+          const backupFile = new w.File([backupJson], 'backup.json', { type: 'application/json' });
+          backupFile.__testText = backupJson;
+          dt.items.add(backupFile);
+          importInput.files = dt.files;
+          importInput.dispatchEvent(new Event('change', { bubbles: true }));
+          setTimeout(() => {
+            try {
+              ok(w.__lastAlert === 'Imported 8 new sessions.', 'importing the backup restores all 8 sessions, got alert: ' + w.__lastAlert);
+              // already on the History view (import happens from Settings, which doesn't change `view`) — no navigation needed
+              const importedCards = d.querySelectorAll('.session-card');
+              ok(importedCards.length === 8, '8 session cards back in history after import, got ' + importedCards.length);
+
+              // importing the exact same backup again is a no-op (dedup by id)
+              click(d.getElementById('settingsBtn'));
+              const dt2 = new w.DataTransfer();
+              const backupFile2 = new w.File([backupJson], 'backup.json', { type: 'application/json' });
+              backupFile2.__testText = backupJson;
+              dt2.items.add(backupFile2);
+              const importInput2 = d.getElementById('importFileInput');
+              importInput2.files = dt2.files;
+              importInput2.dispatchEvent(new Event('change', { bubbles: true }));
+              setTimeout(() => {
+                try {
+                  ok(w.__lastAlert.includes('Nothing new'), 'reimporting an identical backup dedupes to a no-op, got: ' + w.__lastAlert);
+
+                  // invalid file is rejected with a clear alert, no crash
+                  const dt3 = new w.DataTransfer();
+                  const badFile = new w.File(['not json'], 'bad.json', { type: 'application/json' });
+                  badFile.__testText = 'not json';
+                  dt3.items.add(badFile);
+                  const importInput3 = d.getElementById('importFileInput');
+                  importInput3.files = dt3.files;
+                  importInput3.dispatchEvent(new Event('change', { bubbles: true }));
+                  setTimeout(() => {
+                    try {
+                      ok(w.__lastAlert.includes('valid workout backup'), 'invalid backup file triggers a clear error alert, got: ' + w.__lastAlert);
+                    } catch (err) { ok(false, 'EXCEPTION (invalid import check): ' + err.message); }
+                    finish();
+                  }, 60);
+                } catch (err) { ok(false, 'EXCEPTION (dedup import check): ' + err.message); finish(); }
+              }, 60);
+            } catch (err) { ok(false, 'EXCEPTION (import check): ' + err.message); finish(); }
+          }, 60);
+        } catch (err) { ok(false, 'EXCEPTION (reminder/backup check): ' + err.message); finish(); }
+      });
+      return; // finish() is called from inside the async chain above
 
     } catch (err) {
       ok(false, 'EXCEPTION: ' + err.message);
