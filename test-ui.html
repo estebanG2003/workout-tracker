@@ -63,7 +63,7 @@ iframe.addEventListener('load', () => {
       click(body.querySelector('[data-wadj="2.5"]'));
       body = findRow('Bench Press').querySelector('.ex-body'); // nudge handlers mutate in place, no re-render, but re-fetch defensively
       click(body.querySelector('[data-wadj="2.5"]')); // +5 total from 0
-      ok(body.querySelector('#wVal').textContent === '5', 'weight nudges accumulate: 0 -> 2.5 -> 5, got ' + body.querySelector('#wVal').textContent);
+      ok(body.querySelector('#wVal').value === '5', 'weight nudges accumulate: 0 -> 2.5 -> 5, got ' + body.querySelector('#wVal').value);
       ok(!body.querySelector('#weightRow').classList.contains('muted-row'), 'Weight row un-mutes immediately once weight is nudged above 0');
 
       // ---- Weight can be decreased too, mirrored around the value; clamps at 0 ----
@@ -74,14 +74,26 @@ iframe.addEventListener('load', () => {
       ok(weightRow.querySelector('#wVal').compareDocumentPosition(weightRow.querySelector('[data-wadj="2.5"]')) & Node.DOCUMENT_POSITION_FOLLOWING, 'increment group sits after the value');
       click(body.querySelector('[data-wadj="-2.5"]'));
       body = findRow('Bench Press').querySelector('.ex-body');
-      ok(body.querySelector('#wVal').textContent === '2.5', 'decrement button reduces weight: 5 -> 2.5, got ' + body.querySelector('#wVal').textContent);
+      ok(body.querySelector('#wVal').value === '2.5', 'decrement button reduces weight: 5 -> 2.5, got ' + body.querySelector('#wVal').value);
       click(body.querySelector('[data-wadj="-10"]'));
       body = findRow('Bench Press').querySelector('.ex-body');
-      ok(body.querySelector('#wVal').textContent === '0', 'decrementing below 0 clamps at 0 instead of going negative, got ' + body.querySelector('#wVal').textContent);
+      ok(body.querySelector('#wVal').value === '0', 'decrementing below 0 clamps at 0 instead of going negative, got ' + body.querySelector('#wVal').value);
       ok(body.querySelector('#weightRow').classList.contains('muted-row'), 'Weight row re-mutes once decremented back to 0');
       click(body.querySelector('[data-wadj="2.5"]'));
       body = findRow('Bench Press').querySelector('.ex-body');
       click(body.querySelector('[data-wadj="2.5"]')); // back to 5 for the rest of this flow
+
+      // ---- Manual weight entry: type a value directly into the weight field ----
+      let wIn = body.querySelector('#wVal');
+      ok(wIn.tagName === 'INPUT', 'the weight value is a typeable input, not a static label');
+      wIn.value = '42.5';
+      wIn.dispatchEvent(new w.Event('input', { bubbles: true }));
+      ok(!body.querySelector('#weightRow').classList.contains('muted-row'), 'typing a weight un-mutes the weight row');
+      click(body.querySelector('[data-wadj="2.5"]'));
+      ok(body.querySelector('#wVal').value === '45', 'nudging continues from the manually-typed value: 42.5 -> 45, got ' + body.querySelector('#wVal').value);
+      wIn = body.querySelector('#wVal');
+      wIn.value = '5';
+      wIn.dispatchEvent(new w.Event('input', { bubbles: true })); // reset to 5 for the logging flow below
 
       for (let i = 0; i < 8; i++) click(body.querySelector('[data-radj="1"]'));
       ok(body.querySelector('#rVal').textContent === '8', 'reps stepper reaches 8, got ' + body.querySelector('#rVal').textContent);
@@ -98,7 +110,7 @@ iframe.addEventListener('load', () => {
       // is untouched by logSet), so no need to click the head again
       body = findRow('Bench Press').querySelector('.ex-body');
       ok(!!body, 'exercise stays expanded after logging a set (not re-collapsed)');
-      ok(body.querySelector('#wVal').textContent === '5', 'second-set default weight carries forward from the set just logged, got ' + body.querySelector('#wVal').textContent);
+      ok(body.querySelector('#wVal').value === '5', 'second-set default weight carries forward from the set just logged, got ' + body.querySelector('#wVal').value);
       click(body.querySelector('#logBtn'));
       benchRow = findRow('Bench Press');
       ok(benchRow.querySelector('.ex-summary').textContent === '5×8, 5×8', 'two sets now shown for Bench Press, got ' + benchRow.querySelector('.ex-summary').textContent);
@@ -157,7 +169,7 @@ iframe.addEventListener('load', () => {
       ok(/^workout-export-\d{4}-\d{2}-\d{2}\.md$/.test(w.__capturedExport.filename), 'filename matches workout-export-YYYY-MM-DD.md, got ' + w.__capturedExport.filename);
       // Cable Fly was added but never had a set logged, so it correctly has no
       // entry and does not appear in the export (entries only exist per logged set).
-      ok(w.__capturedExport.text.includes('## ') && w.__capturedExport.text.includes('Bench Press: 5×8, 5×8'), 'exported markdown contains the session\'s logged exercise + sets, got:\n' + w.__capturedExport.text);
+      ok(w.__capturedExport.text.includes('— Push (lbs)') && w.__capturedExport.text.includes('Bench Press: 5×8, 5×8'), 'exported markdown has the unit-marked header + the logged sets, got:\n' + w.__capturedExport.text);
       ok(!w.__capturedExport.text.includes('Cable Fly'), 'Cable Fly (added but never logged) correctly absent from the export');
 
       // exporting again immediately: nothing new since we just exported -> alert, no second capture
@@ -176,7 +188,7 @@ iframe.addEventListener('load', () => {
       click(findRow('Bench Press').querySelector('.ex-head'));
       body = findRow('Bench Press').querySelector('.ex-body');
       ok(body.querySelector('.ref-val').textContent === '5×8, 5×8', 'reference line shows last time\'s sets, got ' + body.querySelector('.ref-val').textContent);
-      ok(body.querySelector('#wVal').textContent === '5' && body.querySelector('#rVal').textContent === '8', 'weight/reps default from last time (first set): 5x8');
+      ok(body.querySelector('#wVal').value === '5' && body.querySelector('#rVal').textContent === '8', 'weight/reps default from last time (first set): 5x8');
 
       // discard this second in-progress session so it doesn't pollute the settings test below
       click(d.getElementById('backBtn'));
@@ -204,6 +216,26 @@ iframe.addEventListener('load', () => {
 
       click(d.getElementById('closeSettings'));
       ok(settingsOverlay.hidden, 'settings sheet closes');
+
+      // ---- Units: kg/lbs toggle converts every displayed weight instantly ----
+      click(d.getElementById('settingsBtn'));
+      const kgBtn = [...d.querySelectorAll('#unitSeg button')].find(b => b.dataset.u === 'kg');
+      ok(!!kgBtn, 'settings sheet has a kg unit button');
+      click(kgBtn);
+      ok(kgBtn.classList.contains('on'), 'kg segment is marked active after tapping');
+      click(d.getElementById('closeSettings'));
+      click(d.getElementById('historyLink'));
+      let uCards = d.querySelectorAll('.session-card');
+      let pCard = [...uCards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      click(pCard.querySelector('.session-head'));
+      uCards = d.querySelectorAll('.session-card');
+      pCard = [...uCards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      ok(pCard.querySelector('.session-detail').textContent.includes('2.5×8'), 'switching to kg converts the 5 lb sets to 2.5 kg in history, got: ' + pCard.querySelector('.session-detail').textContent.replace(/\s+/g,' '));
+      // back to lbs so the remaining assertions reason in pounds
+      click(d.getElementById('settingsBtn'));
+      click([...d.querySelectorAll('#unitSeg button')].find(b => b.dataset.u === 'lbs'));
+      click(d.getElementById('closeSettings'));
+      click(d.getElementById('backBtn'));   // history -> home
 
       // ---- Edit / delete a logged set, in the active session ----
       click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'legs'));
@@ -263,34 +295,41 @@ iframe.addEventListener('load', () => {
       click(d.getElementById('finishBtn'));
       ok(d.getElementById('screenTitle').textContent === 'Workout', 'finishing the Legs session returns home');
 
-      // ---- Verify the exercise list + order carries forward to a NEW Legs session ----
+      // ---- NEW Legs session shows the FULL persistent roster (skipped/unlogged exercises still appear) ----
       click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'legs'));
       const legRows = [...d.querySelectorAll('.ex-row')].map(r => r.querySelector('.ex-name').textContent);
-      ok(legRows.join(',') === 'Squat,RDL', 'new Legs session carries forward BOTH exercises in the order they were logged last time, not all 5 seed exercises, got ' + legRows.join(','));
-      ok(!findRow('Leg Press'), 'Leg Press — an untouched SEED_EXERCISES.legs name — does NOT leak into the carried-forward list');
-      click(d.getElementById('backBtn'));   // done testing Legs, discard
+      ok(legRows.join(',') === 'Squat,RDL,Leg Press,Hip Thrust,Leg Curl', 'a new Legs session shows the FULL persistent roster in order, not just last time\'s logged exercises, got ' + legRows.join(','));
+      ok(findRow('Squat').querySelector('.ex-summary').textContent === 'Last: 15×6', 'a previously-logged exercise shows its last weight, got ' + findRow('Squat').querySelector('.ex-summary').textContent);
+      ok(findRow('RDL').querySelector('.ex-summary').textContent === 'Last: 10×5', 'RDL shows its last weight too, got ' + findRow('RDL').querySelector('.ex-summary').textContent);
+      ok(findRow('Leg Press').querySelector('.ex-summary').textContent === 'New', 'a never-logged roster exercise (Leg Press) still appears, marked New, got ' + findRow('Leg Press').querySelector('.ex-summary').textContent);
 
-      // ---- Remove a custom exercise + skip a carried-forward exercise (Push now has real history too) ----
-      click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'push'));
-      ok(d.querySelectorAll('.ex-row').length === 1, 'Push carry-forward mode: only Bench Press (last time\'s actual exercise) shows, got ' + d.querySelectorAll('.ex-row').length);
-      click(d.getElementById('addExerciseBtn'));   // prompt stubbed to 'Cable Fly'
-      let cableRow = findRow('Cable Fly');
-      ok(!!cableRow, 'Cable Fly added today appears in the list');
-      ok(!!cableRow.querySelector('[data-remove-ex]'), 'exercise added today shows a remove button');
-      ok(!!findRow('Bench Press').querySelector('[data-remove-ex]'), 'carried-forward exercise (Bench Press) ALSO shows a remove button now — no protected-seed concept once real history exists');
-      const headRight = cableRow.querySelector('.ex-head-right');
-      ok(headRight.querySelector('.ex-summary').compareDocumentPosition(headRight.querySelector('[data-remove-ex]')) & Node.DOCUMENT_POSITION_FOLLOWING, 'remove button sits AFTER the summary text (trailing edge), not sandwiched between name and summary');
-      click(cableRow.querySelector('[data-remove-ex]'));
-      ok(!findRow('Cable Fly'), 'Cable Fly removed from today\'s list after confirming');
-      click(findRow('Bench Press').querySelector('[data-remove-ex]'));
-      ok(!findRow('Bench Press'), 'skipping Bench Press for today removes it from today\'s list too');
-      ok(d.querySelectorAll('.ex-row').length === 0, 'both skipped -> empty list for today, got ' + d.querySelectorAll('.ex-row').length);
-      click(d.getElementById('backBtn'));   // discard this Push session too (nothing logged, no confirm needed)
+      // ---- Skip-for-today is session-local; the exercise returns next time (the shrugs example) ----
+      click(findRow('Leg Press').querySelector('[data-skip-ex]'));
+      ok(!findRow('Leg Press'), 'skipping Leg Press drops it from TODAY\'s list');
+      ok(d.querySelectorAll('.ex-row').length === 4, 'four rows remain after skipping one, got ' + d.querySelectorAll('.ex-row').length);
+      click(d.getElementById('backBtn'));   // discard (nothing logged)
+      click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'legs'));
+      ok(!!findRow('Leg Press'), 'Leg Press is BACK next Legs session — skip was today-only, the roster persists');
 
-      // ---- Skip-for-today is session-local only — doesn't persist to the NEXT session ----
-      click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'push'));
-      ok(!!findRow('Bench Press'), 'Bench Press is back on a fresh Push session — skipping it last time was session-local, not permanent');
-      click(d.getElementById('backBtn'));   // discard this Push session too
+      // ---- Edit list: reorder (↑/↓) and permanently remove from the roster ----
+      click(d.getElementById('editListBtn'));
+      ok(d.getElementById('editListBtn').textContent === 'Done', 'Edit list toggle flips to Done');
+      ok(!d.getElementById('addExerciseBtn'), 'Add-exercise button is hidden while editing the list');
+      ok(findRow('Squat').querySelector('[data-move="-1"]').disabled, 'the first row\'s move-up arrow is disabled');
+      click(findRow('Squat').querySelector('[data-move="1"]'));   // move Squat down one slot
+      let orderNow = [...d.querySelectorAll('.ex-row .ex-name')].map(e => e.textContent);
+      ok(orderNow[0] === 'RDL' && orderNow[1] === 'Squat', 'moving Squat down swaps it below RDL, got ' + orderNow.join(','));
+      click(findRow('Leg Press').querySelector('[data-remove-ex]'));   // permanent remove
+      ok(!findRow('Leg Press'), 'Leg Press permanently removed from the roster in edit mode');
+      click(d.getElementById('editListBtn'));   // Done
+
+      // ---- Reorder + permanent removal persist to the next session ----
+      click(d.getElementById('backBtn'));
+      click([...d.querySelectorAll('.split-btn')].find(b => b.dataset.split === 'legs'));
+      const legOrder2 = [...d.querySelectorAll('.ex-row .ex-name')].map(e => e.textContent);
+      ok(legOrder2[0] === 'RDL' && legOrder2[1] === 'Squat', 'reordered roster persists to a new session, got ' + legOrder2.join(','));
+      ok(!legOrder2.includes('Leg Press'), 'permanently-removed Leg Press stays gone, got ' + legOrder2.join(','));
+      click(d.getElementById('backBtn'));   // discard, back home
 
       // ---- History: delete an individual set, then delete a whole session ----
       // Two finished sessions exist now: the original Push/Bench-Press one from

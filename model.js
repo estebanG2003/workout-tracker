@@ -214,12 +214,127 @@
     };
   }
 
+  /* ---- Units (kg/lbs) ----
+     Weights are ALWAYS stored canonically in POUNDS. A single global unit
+     preference controls display only; conversion happens at exactly two
+     boundaries — canonical->display when reading, display->canonical when
+     logging/editing. This keeps existing (lbs) history untouched forever and
+     makes the toggle a pure re-render.
+
+     Precision: canonical lbs are kept to 0.1; display values snap to 0.5
+     (real plate granularity in either unit). Verified drift-free on the
+     round-trip that matters — 45.0 kg -> 99.2 lbs -> 45.0 kg. */
+  const LBS_PER_KG = 2.2046226218;
+  const roundTo = (v, step) => Math.round(v / step) * step;
+
+  function toDisplayWeight(lbs, unit) {
+    const v = Math.max(0, Number(lbs) || 0);
+    return roundTo(unit === 'kg' ? v / LBS_PER_KG : v, 0.5);
+  }
+  /* Inverse of toDisplayWeight: a value the user typed/nudged in `unit` back
+     to canonical pounds (0.1 precision). logSet/updateSet clamp on top. */
+  function toCanonicalWeight(val, unit) {
+    const v = Math.max(0, Number(val) || 0);
+    return roundTo(unit === 'kg' ? v * LBS_PER_KG : v, 0.1);
+  }
+  /* Bare number string in the display unit (no unit suffix), trailing zeros
+     dropped — String() already does this since values snap to 0.5. */
+  function fmtWeight(lbs, unit) { return String(toDisplayWeight(lbs, unit)); }
+  const UNIT_LABEL = { lbs: 'lbs', kg: 'kg' };
+
+  /* Persisted global unit preference. Defaults to 'lbs' (the canonical /
+     legacy unit) and only ever stores one of the two known values. */
+  function createUnitPref(storage) {
+    const UKEY = 'workout-unit-v1';
+    return {
+      get() { return storage.getItem(UKEY) === 'kg' ? 'kg' : 'lbs'; },
+      set(u) { storage.setItem(UKEY, u === 'kg' ? 'kg' : 'lbs'); return this.get(); },
+    };
+  }
+
+  /* ---- Roster: the persistent, ordered, per-split exercise list ----
+     This is the SOURCE OF TRUTH for which exercises show up in a session and
+     in what order — deliberately independent of what actually got logged, so
+     an exercise you skip (log nothing for) still appears next time with its
+     last-known weight (read back via lastSetsFor). It also powers reordering.
+
+     Seeded once per split (see init) from the last finished session's exercise
+     order, or SEED_EXERCISES when there's no history yet — so the switch to a
+     roster is visually seamless. After that first seed it's user-owned:
+     add/remove/move are explicit and persisted; seed exercises are no longer
+     "protected" (you can remove or reorder any of them). */
+  function createRoster(storage) {
+    const RKEY = 'workout-roster-v1';
+    let data = {};
+    try { data = JSON.parse(storage.getItem(RKEY) || '{}') || {}; } catch { data = {}; }
+    const persist = () => storage.setItem(RKEY, JSON.stringify(data));
+    const norm = n => String(n).trim();
+    const idx = (split, name) =>
+      data[split].findIndex(e => e.toLowerCase() === String(name).toLowerCase());
+    return {
+      has(split) { assertSplit(split); return Array.isArray(data[split]); },
+      get(split) { assertSplit(split); return Array.isArray(data[split]) ? data[split].slice() : []; },
+      /* Idempotent: seeds the split's list from `names` (deduped, trimmed,
+         case-insensitive) only if it hasn't been initialized yet. Returns the
+         current list either way. */
+      init(split, names) {
+        assertSplit(split);
+        if (Array.isArray(data[split])) return this.get(split);
+        const seen = new Set(); const out = [];
+        (names || []).forEach(n => {
+          const nm = norm(n), k = nm.toLowerCase();
+          if (nm && !seen.has(k)) { seen.add(k); out.push(nm); }
+        });
+        data[split] = out; persist();
+        return out.slice();
+      },
+      add(split, name) {
+        assertSplit(split);
+        const nm = norm(name);
+        if (!nm) return null;
+        if (!Array.isArray(data[split])) data[split] = [];
+        if (idx(split, nm) >= 0) return null; // no case-insensitive duplicates
+        data[split].push(nm); persist();
+        return nm;
+      },
+      remove(split, name) {
+        assertSplit(split);
+        if (!Array.isArray(data[split])) return false;
+        const before = data[split].length;
+        data[split] = data[split].filter(e => e.toLowerCase() !== String(name).toLowerCase());
+        if (data[split].length === before) return false;
+        persist();
+        return true;
+      },
+      /* Swaps `name` with its neighbor in the given direction (dir < 0 = up/
+         earlier, dir > 0 = down/later). Returns false at the list edges or if
+         the name isn't present. */
+      move(split, name, dir) {
+        assertSplit(split);
+        if (!Array.isArray(data[split])) return false;
+        const i = idx(split, name);
+        if (i < 0) return false;
+        const j = i + (dir < 0 ? -1 : 1);
+        if (j < 0 || j >= data[split].length) return false;
+        const arr = data[split];
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+        persist();
+        return true;
+      },
+    };
+  }
+
   function sortSessionsDesc(sessions) {
     return sessions.slice().sort((a, b) => b.date - a.date);
   }
 
   function formatSets(sets) {
     return sets.map(s => `${s.weight}×${s.reps}`).join(', ');
+  }
+
+  /* Unit-aware counterpart to formatSets, for anything shown to the user. */
+  function formatSetsInUnit(sets, unit) {
+    return sets.map(s => `${fmtWeight(s.weight, unit)}×${s.reps}`).join(', ');
   }
 
   const pad2 = n => String(n).padStart(2, '0');
@@ -240,12 +355,13 @@
   /* Markdown export — a paste-ready block per session, oldest first (a
      natural chronological log to append). Entries only exist for exercises
      that actually had a set logged, so nothing "empty" shows up. */
-  function toMarkdown(sessions) {
+  function toMarkdown(sessions, unit) {
+    const u = unit === 'kg' ? 'kg' : 'lbs';
     const sorted = sessions.slice().sort((a, b) => a.date - b.date);
     return sorted.map(s => {
       const label = s.split.charAt(0).toUpperCase() + s.split.slice(1);
-      const lines = s.entries.map(e => `- ${e.exercise}: ${formatSets(e.sets)}`);
-      return `## ${localDateStr(s.date)} — ${label}\n${lines.join('\n')}`;
+      const lines = s.entries.map(e => `- ${e.exercise}: ${formatSetsInUnit(e.sets, u)}`);
+      return `## ${localDateStr(s.date)} — ${label} (${UNIT_LABEL[u]})\n${lines.join('\n')}`;
     }).join('\n\n') + (sorted.length ? '\n' : '');
   }
 
@@ -345,7 +461,9 @@
     };
   }
 
-  return { SPLITS, SEED_EXERCISES, createStore, createExercises, sortSessionsDesc,
+  return { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
+           createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
+           LBS_PER_KG, sortSessionsDesc,
            formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
            exportReminderDue, toJSON, fromJSON, mergeSessions,
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,

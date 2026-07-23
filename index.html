@@ -196,6 +196,28 @@
     .list-add:active { background: var(--surface-2); }
     .list-add span.plus { font-size: 20px; line-height: 1; }
 
+    /* Weight value doubles as a manual-entry field (type-a-number). Reuses the
+       .cur-val pill look; strips native number-input chrome so it reads as a
+       value, not a form field, until tapped. */
+    input.cur-val {
+      border: 1px solid transparent; -moz-appearance: textfield; appearance: textfield;
+      color: var(--text); width: 64px; min-width: 64px;
+    }
+    input.cur-val:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+    input.cur-val::-webkit-outer-spin-button,
+    input.cur-val::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .cur-unit { font-size: 12.5px; font-weight: 600; color: var(--text-dim); flex: 0 0 auto; margin-left: -4px; }
+
+    /* "Edit list" toolbar + reorder mode */
+    .list-toolbar { display: flex; justify-content: flex-end; margin: 2px 0 8px; }
+    .list-edit-toggle {
+      border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim);
+      border-radius: 999px; padding: 7px 14px; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    }
+    .list-edit-toggle.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .ex-row.editing-list .ex-head { cursor: default; }
+    .set-icon-btn:disabled { opacity: .3; cursor: default; }
+
     /* ---------- History ---------- */
     .session-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
     .session-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
@@ -310,6 +332,15 @@
       </div>
 
       <div class="set-section">
+        <label>Units</label>
+        <div class="segment" id="unitSeg">
+          <button data-u="lbs">lbs</button>
+          <button data-u="kg">kg</button>
+        </div>
+        <p class="set-hint">Switches every weight in the app instantly. Your data is stored the same way either way, so nothing gets lost — you can flip back and forth freely.</p>
+      </div>
+
+      <div class="set-section">
         <label>Theme color</label>
         <div class="swatches" id="swatches"></div>
         <button class="remove-custom" id="removeCustom" hidden>Remove this custom color</button>
@@ -344,14 +375,24 @@
   <script src="model.js"></script>
   <script>
   /* View layer. Core data model lives in model.js (shared with tests). */
-  const { SPLITS, SEED_EXERCISES, createStore, createExercises, sortSessionsDesc,
-          formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
+  const { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster, createUnitPref,
+          toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
+          sortSessionsDesc, formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
           exportReminderDue, toJSON, fromJSON, mergeSessions,
           hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv } = WorkoutModel;
   const store = createStore(localStorage);
-  const exercises = createExercises(localStorage);
+  const exercises = createExercises(localStorage);      // legacy seed source (no-history splits)
+  const roster = createRoster(localStorage);            // persistent per-split exercise list
+  const unitPref = createUnitPref(localStorage);
   const exportTracker = createExportTracker(localStorage);
   store.load();
+
+  /* Current display unit ('lbs' | 'kg'). Weights are stored canonically in lbs;
+     these wrappers convert only at the display / input boundary. */
+  let unit = unitPref.get();
+  const dispW = lbs => toDisplayWeight(lbs, unit);      // canonical lbs -> display value
+  const toCanon = val => toCanonicalWeight(val, unit);  // display value -> canonical lbs
+  const fmtSetsU = sets => formatSetsInUnit(sets, unit);
 
   const SPLIT_LABEL = { push: 'Push', pull: 'Pull', legs: 'Legs' };
   const SPLIT_EMOJI = { push: '💪', pull: '🏋️', legs: '🦵' };
@@ -409,13 +450,13 @@
   let editingSet = null;
   let justLoggedExercise = null; // one-shot flag: name of the exercise whose set-list should flash on this render
   let historyEditId = null;      // id of the ONE history session card currently in edit mode (read-only otherwise)
-  /* Once a split has real history, its exercise list for a new session is
-     carried forward from the last finished session of that split (name +
-     order), not the generic SEED_EXERCISES list. These two are session-local
-     view state only — they never touch history or the persisted custom
-     exercise list, and reset every time a new session starts. */
-  let hiddenToday = new Set();   // exercise names skipped from today's carried-forward list
-  let addedToday = [];           // exercise names added today via "+ Add exercise" (carry-forward mode only)
+  /* The exercise list shown in a session comes from the persistent per-split
+     `roster` (seeded once from last session's exercises, then user-owned).
+     `hiddenToday` is session-local: names skipped from TODAY only, which stay
+     in the roster and reappear next time. `editingList` toggles reorder/remove
+     mode over the roster itself. */
+  let hiddenToday = new Set();
+  let editingList = false;
 
   const screenEl = document.getElementById('screen');
   const titleEl = document.getElementById('screenTitle');
@@ -429,8 +470,14 @@
     return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
+  /* Draft holds pending values in the CURRENT DISPLAY UNIT (what the nudge
+     buttons / weight field operate on); converted to canonical lbs only at
+     Log Set. Seeded from the canonical defaults, converted into display units. */
   function draftFor(name) {
-    if (!draft[name]) draft[name] = store.defaultsFor(activeSession, name);
+    if (!draft[name]) {
+      const d = store.defaultsFor(activeSession, name);
+      draft[name] = { weight: dispW(d.weight), reps: d.reps };
+    }
     return draft[name];
   }
 
@@ -456,7 +503,7 @@
       b.onclick = () => {
         activeSession = store.startSession(b.dataset.split);
         expandedExercise = null; draft = {}; editingSet = null;
-        hiddenToday = new Set(); addedToday = [];
+        hiddenToday = new Set(); editingList = false;
         view = 'active'; render();
       };
     });
@@ -467,38 +514,40 @@
   }
 
   function renderActive() {
-    /* Once this split has real history, carry its exercise list forward
-       from the last finished session of that split (name + order) instead
-       of the generic SEED_EXERCISES list — that's the whole point: open a
-       new Pull day and see last Pull day's exercises already there. */
-    const lastSplitSession = store.lastSessionForSplit(activeSession.split);
-    let list;
-    if (lastSplitSession) {
-      const baseList = lastSplitSession.entries.map(e => e.exercise);
-      const extra = addedToday.filter(n => !baseList.includes(n));
-      list = baseList.concat(extra).filter(n => !hiddenToday.has(n));
-    } else {
-      list = exercises.forSplit(activeSession.split);
-    }
+    const split = activeSession.split;
+    /* The persistent roster is the source of truth for what shows up and in
+       what order. Seed it once (idempotent) from the last finished session of
+       this split — or the seeded/custom list if there's no history yet — so
+       the very first render after this feature looks exactly like before. */
+    const lastSplitSession = store.lastSessionForSplit(split);
+    const seed = lastSplitSession ? lastSplitSession.entries.map(e => e.exercise)
+                                  : exercises.forSplit(split);
+    roster.init(split, seed);
+    const full = roster.get(split);
+    /* Edit mode shows the whole roster (so any exercise can be reordered/
+       removed); normal mode hides today's skipped ones. */
+    const list = editingList ? full : full.filter(n => !hiddenToday.has(n));
+
     screenEl.innerHTML = `
+      <div class="list-toolbar">
+        <button class="list-edit-toggle${editingList ? ' on' : ''}" id="editListBtn">${editingList ? 'Done' : 'Edit list'}</button>
+      </div>
       <ul class="ex-list" id="exList"></ul>
-      <button class="list-add" id="addExerciseBtn"><span class="plus">+</span><span>Add exercise</span></button>`;
+      ${editingList ? '' : '<button class="list-add" id="addExerciseBtn"><span class="plus">+</span><span>Add exercise</span></button>'}`;
     const exListEl = document.getElementById('exList');
-    list.forEach(name => exListEl.appendChild(renderExerciseRow(name, !!lastSplitSession)));
-    document.getElementById('addExerciseBtn').onclick = () => {
-      const name = window.prompt('Exercise name:');
-      if (name === null) return;
-      if (lastSplitSession) {
-        const nm = String(name).trim();
-        if (!nm || list.some(n => n.toLowerCase() === nm.toLowerCase())) return;
-        addedToday.push(nm);
-        expandedExercise = nm;
-        render();
-      } else {
-        const added = exercises.addCustom(activeSession.split, name);
-        if (added) { expandedExercise = added; render(); }
-      }
+    list.forEach((name, i) => exListEl.appendChild(renderExerciseRow(name, i, list.length)));
+
+    document.getElementById('editListBtn').onclick = () => {
+      editingList = !editingList; expandedExercise = null; render();
     };
+    if (!editingList) {
+      document.getElementById('addExerciseBtn').onclick = () => {
+        const name = window.prompt('Exercise name:');
+        if (name === null) return;
+        const added = roster.add(split, name);
+        if (added) { hiddenToday.delete(added); expandedExercise = added; render(); }
+      };
+    }
   }
 
   /* Applies `fn` (a store.deleteSet/updateSet call) to the right session
@@ -522,7 +571,7 @@
     return sets.map((set, i) => {
       if (editing && editing.index === i) {
         return `<div class="set-row editing" data-i="${i}">
-          <input type="number" inputmode="decimal" class="set-in edit-w" value="${set.weight}" step="0.5" min="0">
+          <input type="number" inputmode="decimal" class="set-in edit-w" value="${dispW(set.weight)}" step="0.5" min="0">
           <span class="set-x">×</span>
           <input type="number" inputmode="numeric" class="set-in edit-r" value="${set.reps}" min="1">
           <button class="set-icon-btn save" data-save-set aria-label="save set">✓</button>
@@ -531,7 +580,7 @@
       }
       const flashCls = flashIndex === i ? ' just-logged' : '';
       return `<div class="set-row${flashCls}" data-i="${i}">
-        <span class="set-txt">${set.weight}×${set.reps}</span>
+        <span class="set-txt">${dispW(set.weight)}×${set.reps}</span>
         <button class="set-icon-btn" data-edit-set="${i}" aria-label="edit set">✎</button>
         <button class="set-icon-btn danger" data-del-set="${i}" aria-label="delete set">✕</button>
       </div>`;
@@ -558,7 +607,7 @@
         const w = parseFloat(editingRow.querySelector('.edit-w').value);
         const r = parseInt(editingRow.querySelector('.edit-r').value, 10);
         const idx = +editingRow.dataset.i;
-        const applied = applySetMutation(scope, s => store.updateSet(s, exercise, idx, w, r));
+        const applied = applySetMutation(scope, s => store.updateSet(s, exercise, idx, toCanon(w), r));
         if (!applied) { window.alert('Reps must be greater than 0.'); return; }
         editingSet = null; render();
       };
@@ -566,51 +615,61 @@
     }
   }
 
-  function renderExerciseRow(name, carryForward) {
+  function renderExerciseRow(name, index, count) {
     const entry = activeSession.entries.find(e => e.exercise === name);
     const todaySets = entry ? entry.sets : [];
     const lastSets = store.lastSetsFor(name, activeSession.id);
-    const expanded = expandedExercise === name;
-
     const li = document.createElement('li');
+    const splitLabel = SPLIT_LABEL[activeSession.split];
+
+    /* Edit-list mode: no logging, just reorder (↑/↓) and permanent remove from
+       the roster. Removing here drops the exercise from FUTURE sessions of this
+       split too (the roster is the source of truth); past logged history is
+       untouched. Distinct from the ✕ skip in normal mode, which is today-only. */
+    if (editingList) {
+      li.className = 'ex-row editing-list';
+      const head = document.createElement('div');
+      head.className = 'ex-head';
+      head.innerHTML = `<span class="ex-name">${escapeHtml(name)}</span>
+        <span class="ex-head-right reorder-ctrls">
+          <button class="set-icon-btn" data-move="-1"${index === 0 ? ' disabled' : ''} aria-label="move up">↑</button>
+          <button class="set-icon-btn" data-move="1"${index === count - 1 ? ' disabled' : ''} aria-label="move down">↓</button>
+          <button class="set-icon-btn danger" data-remove-ex aria-label="remove exercise from list">🗑</button>
+        </span>`;
+      const mv = dir => () => { if (roster.move(activeSession.split, name, dir)) render(); };
+      head.querySelector('[data-move="-1"]').onclick = mv(-1);
+      head.querySelector('[data-move="1"]').onclick = mv(1);
+      head.querySelector('[data-remove-ex]').onclick = () => {
+        if (!window.confirm(`Remove "${name}" from your ${splitLabel} list? It won't appear in future ${splitLabel} workouts unless you add it back. Past logged sets are kept in history.`)) return;
+        roster.remove(activeSession.split, name);
+        hiddenToday.delete(name);
+        render();
+      };
+      li.appendChild(head);
+      return li;
+    }
+
+    const expanded = expandedExercise === name;
     li.className = 'ex-row' + (expanded ? ' expanded' : '') + (todaySets.length ? ' done' : '');
 
-    /* In carry-forward mode every row came from last time's actual session
-       (or was added today), so every row can be skipped for today — there's
-       no "protected seed" concept once real history exists. In the
-       no-history-yet fallback, only non-seed (persisted custom) exercises
-       are removable, same as before this change. */
-    const removable = carryForward || !SEED_EXERCISES[activeSession.split].includes(name);
     const head = document.createElement('div');
     head.className = 'ex-head';
     head.innerHTML = `<span class="ex-name">${escapeHtml(name)}</span>
       <span class="ex-head-right">
-        <span class="ex-summary">${todaySets.length ? formatSets(todaySets) : (lastSets.length ? 'Last: ' + formatSets(lastSets) : 'New')}</span>
-        ${removable ? '<button class="set-icon-btn danger" data-remove-ex aria-label="remove exercise">✕</button>' : ''}
+        <span class="ex-summary">${todaySets.length ? fmtSetsU(todaySets) : (lastSets.length ? 'Last: ' + fmtSetsU(lastSets) : 'New')}</span>
+        <button class="set-icon-btn danger" data-skip-ex aria-label="skip exercise for today">✕</button>
       </span>`;
     head.onclick = () => { expandedExercise = expanded ? null : name; render(); };
-    const removeExBtn = head.querySelector('[data-remove-ex]');
-    if (removeExBtn) {
-      removeExBtn.onclick = (ev) => {
-        ev.stopPropagation();
-        if (carryForward) {
-          const msg = todaySets.length
-            ? `Skip "${name}" for today's workout? Sets already logged for it this workout will still be saved when you finish, but you won't be able to edit them here anymore.`
-            : `Skip "${name}" for today's workout?`;
-          if (!window.confirm(msg)) return;
-          hiddenToday.add(name);
-          addedToday = addedToday.filter(n => n !== name);
-        } else {
-          const msg = todaySets.length
-            ? `Remove "${name}" from your exercise list? Sets already logged for it this workout will still be saved when you finish, but you won't be able to edit them here anymore.`
-            : `Remove "${name}" from your exercise list?`;
-          if (!window.confirm(msg)) return;
-          exercises.removeCustom(activeSession.split, name);
-        }
-        if (expandedExercise === name) expandedExercise = null;
-        render();
-      };
-    }
+    head.querySelector('[data-skip-ex]').onclick = (ev) => {
+      ev.stopPropagation();
+      const msg = todaySets.length
+        ? `Skip "${name}" for today? Sets already logged for it will still be saved when you finish, but it drops off today's list. It'll be back next ${splitLabel} day.`
+        : `Skip "${name}" for today? It'll be back next ${splitLabel} day with its last weight.`;
+      if (!window.confirm(msg)) return;
+      hiddenToday.add(name);
+      if (expandedExercise === name) expandedExercise = null;
+      render();
+    };
     li.appendChild(head);
 
     if (expanded) {
@@ -622,7 +681,7 @@
       const body = document.createElement('div');
       body.className = 'ex-body';
       body.innerHTML = `
-        <div class="ref-last">Last time<span class="ref-val">${lastSets.length ? formatSets(lastSets) : 'No previous data'}</span></div>
+        <div class="ref-last">Last time<span class="ref-val">${lastSets.length ? fmtSetsU(lastSets) : 'No previous data'}</span></div>
         ${todaySets.length ? `<div class="ex-ref">Today</div><div class="set-list" data-set-list>${setRowsHtml(todaySets, editingHere, flashHere ? todaySets.length - 1 : null)}</div>` : ''}
         <div class="ctrl-row${weightIrrelevant() ? ' muted-row' : ''}" id="weightRow">
           <div class="nudge-btns">
@@ -630,7 +689,8 @@
             <button data-wadj="-5">−5</button>
             <button data-wadj="-2.5">−2.5</button>
           </div>
-          <span class="cur-val" id="wVal">${d.weight}</span>
+          <input type="number" inputmode="decimal" class="cur-val" id="wVal" value="${d.weight}" step="0.5" min="0" aria-label="weight in ${unit}">
+          <span class="cur-unit">${unit}</span>
           <div class="nudge-btns">
             <button data-wadj="2.5">+2.5</button>
             <button data-wadj="5">+5</button>
@@ -651,10 +711,17 @@
       const setListEl = body.querySelector('[data-set-list]');
       if (setListEl) wireSetList(setListEl, name, 'active');
 
+      const wInput = body.querySelector('#wVal');
+      /* Manual entry: type a weight directly. Kept in display units; snap-free
+         while typing (0.1 granularity) so half-plate values survive. */
+      wInput.oninput = () => {
+        d.weight = Math.max(0, Math.round((parseFloat(wInput.value) || 0) * 10) / 10);
+        body.querySelector('#weightRow').classList.toggle('muted-row', weightIrrelevant());
+      };
       body.querySelectorAll('[data-wadj]').forEach(b => {
         b.onclick = () => {
           d.weight = Math.max(0, Math.round((d.weight + parseFloat(b.dataset.wadj)) * 10) / 10);
-          body.querySelector('#wVal').textContent = d.weight;
+          wInput.value = d.weight;
           body.querySelector('#weightRow').classList.toggle('muted-row', weightIrrelevant());
         };
       });
@@ -665,7 +732,7 @@
         };
       });
       body.querySelector('#logBtn').onclick = () => {
-        const set = store.logSet(activeSession, name, d.weight, d.reps);
+        const set = store.logSet(activeSession, name, toCanon(d.weight), d.reps);
         if (set) { delete draft[name]; justLoggedExercise = name; render(); }
       };
     }
@@ -708,7 +775,7 @@
     const newSessions = sessionsAfter(store.sessions, since);
     if (!newSessions.length) { window.alert('No new sessions to export since your last export.'); return; }
     const now = Date.now();
-    download(`workout-export-${localDateStr(now)}.md`, toMarkdown(newSessions));
+    download(`workout-export-${localDateStr(now)}.md`, toMarkdown(newSessions, unit));
     exportTracker.set(now);
     render();
   }
@@ -759,7 +826,7 @@
             listEl.innerHTML = setRowsHtml(e.sets, editingHere);
             wireSetList(listEl, e.exercise, s.id);
           } else {
-            entryEl.innerHTML = `<div class="sd-ex">${escapeHtml(e.exercise)}</div><div class="sd-sets">${formatSets(e.sets)}</div>`;
+            entryEl.innerHTML = `<div class="sd-ex">${escapeHtml(e.exercise)}</div><div class="sd-sets">${fmtSetsU(e.sets)}</div>`;
           }
           detail.appendChild(entryEl);
         });
@@ -800,6 +867,7 @@
   /* ---------- Settings sheet wiring (reused pattern from Grocery List) ---------- */
   const settingsEl = document.getElementById('settings');
   const appearanceEl = document.getElementById('appearance');
+  const unitSegEl = document.getElementById('unitSeg');
   const swatchesEl = document.getElementById('swatches');
   const removeCustomBtn = document.getElementById('removeCustom');
   const rgbPreview = document.getElementById('rgbPreview');
@@ -810,6 +878,7 @@
 
   function paintSettings() {
     [...appearanceEl.children].forEach(b => b.classList.toggle('on', b.dataset.v === settings.appearance));
+    [...unitSegEl.children].forEach(b => b.classList.toggle('on', b.dataset.u === unit));
     const presets = allPresets();
     swatchesEl.innerHTML = '';
     Object.keys(presets).forEach(key => {
@@ -872,6 +941,14 @@
   };
   appearanceEl.querySelectorAll('button').forEach(b => {
     b.onclick = () => { settings.appearance = b.dataset.v; saveSettings(); applySettings(); paintSettings(); render(); };
+  });
+  unitSegEl.querySelectorAll('button').forEach(b => {
+    b.onclick = () => {
+      if (unit === b.dataset.u) return;
+      unit = unitPref.set(b.dataset.u);
+      draft = {}; // pending draft values were in the old unit — re-seed from defaults
+      paintSettings(); render();
+    };
   });
   document.getElementById('settingsBtn').onclick = () => { paintSettings(); settingsEl.hidden = false; };
   document.getElementById('closeSettings').onclick = () => { settingsEl.hidden = true; };

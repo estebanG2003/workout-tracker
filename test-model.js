@@ -1,6 +1,8 @@
 /* Deterministic tests for the workout tracker data model.
    Run: node test-model.js    (no dependencies) */
-const { SPLITS, SEED_EXERCISES, createStore, createExercises, sortSessionsDesc,
+const { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
+        createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
+        LBS_PER_KG, sortSessionsDesc,
         formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
         hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv,
         exportReminderDue, toJSON, fromJSON, mergeSessions,
@@ -189,16 +191,88 @@ console.log('toMarkdown');
     entries: [{ exercise: 'Bench Press', sets: [{ weight: 135, reps: 8 }, { weight: 135, reps: 7 }] },
               { exercise: 'Dips', sets: [{ weight: 0, reps: 12 }] }] };
   const md1 = toMarkdown([s1]);
-  ok(md1 === '## 2026-07-18 — Push\n- Bench Press: 135×8, 135×7\n- Dips: 0×12\n', 'single-session markdown matches exactly, got:\n' + md1);
+  ok(md1 === '## 2026-07-18 — Push (lbs)\n- Bench Press: 135×8, 135×7\n- Dips: 0×12\n', 'single-session markdown matches exactly (defaults to lbs marker), got:\n' + md1);
 
   const s2 = { id: 's2', date: new Date(2026, 6, 19, 8, 0).getTime(), split: 'legs',
     entries: [{ exercise: 'Squat', sets: [{ weight: 185, reps: 5 }] }] };
   const md2 = toMarkdown([s2, s1]);   // pass in reverse order — function must sort
   ok(md2.indexOf('2026-07-18') < md2.indexOf('2026-07-19'), 'multiple sessions ordered oldest-first regardless of input order');
-  ok(md2 === md1 + '\n' + '## 2026-07-19 — Legs\n- Squat: 185×5\n', 'two-session markdown blocks separated by a blank line, got:\n' + md2);
+  ok(md2 === md1 + '\n' + '## 2026-07-19 — Legs (lbs)\n- Squat: 185×5\n', 'two-session markdown blocks separated by a blank line, got:\n' + md2);
 
   const noEntries = { id: 's3', date: Date.now(), split: 'pull', entries: [] };
-  ok(toMarkdown([noEntries]) === '## ' + localDateStr(noEntries.date) + ' — Pull\n\n', 'a session with zero entries still emits its header, no dangling bullets');
+  ok(toMarkdown([noEntries]) === '## ' + localDateStr(noEntries.date) + ' — Pull (lbs)\n\n', 'a session with zero entries still emits its header, no dangling bullets');
+
+  // kg export: header marker flips and weights convert from canonical lbs
+  const mdKg = toMarkdown([s2], 'kg');
+  ok(mdKg === '## 2026-07-19 — Legs (kg)\n- Squat: 84×5\n', 'kg export converts (185 lbs -> 84 kg) and marks the unit, got:\n' + mdKg);
+}
+
+console.log('unit conversion — toDisplayWeight / toCanonicalWeight / fmtWeight');
+{
+  ok(toDisplayWeight(135, 'lbs') === 135, 'lbs display is the canonical value unchanged');
+  ok(toDisplayWeight(0, 'kg') === 0, 'zero (bodyweight) stays zero in kg');
+  ok(toDisplayWeight(100, 'kg') === 45.5, '100 lbs -> 45.5 kg (snapped to 0.5)');
+  ok(toCanonicalWeight(45, 'kg') === 99.2, '45 kg -> 99.2 lbs canonical (0.1 precision)');
+  ok(toCanonicalWeight(135, 'lbs') === 135, 'lbs input is canonical as-is');
+  ok(toCanonicalWeight(-10, 'lbs') === 0, 'negative input floored to 0');
+  // The round-trip that matters: a kg entry stored as lbs, redisplayed in kg, is stable.
+  ok(toDisplayWeight(toCanonicalWeight(45, 'kg'), 'kg') === 45, '45 kg round-trips through canonical lbs without drift');
+  ok(toDisplayWeight(toCanonicalWeight(47.5, 'kg'), 'kg') === 47.5, '47.5 kg round-trips without drift');
+  ok(fmtWeight(135, 'lbs') === '135' && fmtWeight(100, 'kg') === '45.5', 'fmtWeight returns a bare number string in the display unit');
+  ok(formatSetsInUnit([{ weight: 100, reps: 8 }, { weight: 0, reps: 12 }], 'kg') === '45.5×8, 0×12', 'formatSetsInUnit converts each set and keeps bodyweight at 0');
+}
+
+console.log('createUnitPref');
+{
+  const storage = memStorage();
+  const p = createUnitPref(storage);
+  ok(p.get() === 'lbs', 'defaults to lbs when nothing stored');
+  ok(p.set('kg') === 'kg', 'set returns the normalized stored unit');
+  ok(p.get() === 'kg', 'kg persisted');
+  ok(createUnitPref(storage).get() === 'kg', 'persists across a fresh instance on the same storage');
+  p.set('garbage');
+  ok(p.get() === 'lbs', 'an unknown unit value normalizes back to lbs');
+}
+
+console.log('createRoster — seed, add, remove, move, persistence');
+{
+  const storage = memStorage();
+  const r = createRoster(storage);
+  ok(r.has('push') === false, 'a split is uninitialized before init');
+  ok(r.get('push').length === 0, 'get on an uninitialized split returns an empty array, not a throw');
+
+  const seeded = r.init('push', ['Bench Press', 'Incline Press', 'bench press', '  ', 'Dips']);
+  ok(JSON.stringify(seeded) === JSON.stringify(['Bench Press', 'Incline Press', 'Dips']), 'init dedupes (case-insensitive) and drops blanks, preserving order');
+  ok(r.has('push') === true, 'split is initialized after init');
+
+  // init is idempotent — a second call does NOT reseed
+  ok(JSON.stringify(r.init('push', ['Totally', 'Different'])) === JSON.stringify(['Bench Press', 'Incline Press', 'Dips']), 'init is a no-op once the split already has a roster');
+
+  ok(r.add('push', 'Cable Fly') === 'Cable Fly', 'add returns the trimmed name');
+  ok(r.add('push', 'cable fly') === null, 'duplicate add rejected (case-insensitive)');
+  ok(r.add('push', '   ') === null, 'blank add rejected');
+  ok(JSON.stringify(r.get('push')) === JSON.stringify(['Bench Press', 'Incline Press', 'Dips', 'Cable Fly']), 'add appends to the end');
+
+  // move
+  ok(r.move('push', 'Dips', -1) === true, 'move up returns true');
+  ok(JSON.stringify(r.get('push')) === JSON.stringify(['Bench Press', 'Dips', 'Incline Press', 'Cable Fly']), 'Dips moved up one slot');
+  ok(r.move('push', 'Bench Press', -1) === false, 'moving the first item up is a no-op (false)');
+  ok(r.move('push', 'Cable Fly', 1) === false, 'moving the last item down is a no-op (false)');
+  ok(r.move('push', 'Nope', -1) === false, 'moving an absent name returns false');
+
+  // remove — including a former seed exercise (no longer protected)
+  ok(r.remove('push', 'Bench Press') === true, 'remove can delete a former seed exercise');
+  ok(!r.get('push').includes('Bench Press'), 'Bench Press gone from the roster');
+  ok(r.remove('push', 'Nope') === false, 'removing an absent name returns false');
+
+  // persistence across a fresh instance
+  const r2 = createRoster(storage);
+  ok(JSON.stringify(r2.get('push')) === JSON.stringify(['Dips', 'Incline Press', 'Cable Fly']), 'roster state persists across reload');
+  ok(r2.get('pull').length === 0, 'an untouched split stays empty across reload');
+
+  let threw = false;
+  try { r.init('cardio', []); } catch { threw = true; }
+  ok(threw, 'roster ops reject an invalid split');
 }
 
 console.log('createExportTracker');
