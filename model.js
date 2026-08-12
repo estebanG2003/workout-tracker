@@ -17,6 +17,14 @@
   else root.WorkoutModel = api;                                          // browser
 })(typeof self !== 'undefined' ? self : this, function () {
 
+  /* App version. Bump this on any deploy that changes model.js, AND in the
+     `?v=` on index.html's <script src="model.js?v=...">. Those two are the
+     same number on purpose: the query string is what makes the browser fetch
+     a matching model.js instead of reusing a cached one, and index.html
+     compares them at boot so a missed bump surfaces instead of white-screening.
+     See README "Releasing". */
+  const VERSION = '1.0.0';
+
   const SPLITS = ['push', 'pull', 'legs'];
   /* Sanity clamps, not realism limits — a guard against a runaway nudge/stepper
      tap-storm or bad input, not a claim about what's humanly liftable. */
@@ -377,17 +385,6 @@
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   }
 
-  /* Build stamp for the corner of the app, from the document's Last-Modified.
-     CalVer to the minute: DERIVED rather than hand-bumped, so it can never
-     claim to be current when it isn't — the one failure mode a version label
-     has. Minutes included so two deploys on the same day stay distinguishable.
-     Returns '' on an unparseable date rather than showing "Invalid Date". */
-  function buildStamp(lastModified) {
-    const t = lastModified instanceof Date ? lastModified : new Date(lastModified);
-    if (isNaN(t.getTime())) return '';
-    return `v${t.getFullYear()}.${pad2(t.getMonth() + 1)}.${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}`;
-  }
-
   /* Sessions with date strictly after `ts` (0 if omitted -> everything). Used
      for "export only what's new since last export". */
   function sessionsAfter(sessions, ts) {
@@ -503,11 +500,11 @@
     };
   }
 
-  return { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
+  return { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
            LBS_PER_KG, sortSessionsDesc,
-           formatSets, localDateStr, buildStamp, sessionsAfter, toMarkdown, createExportTracker,
+           formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
            exportReminderDue, toJSON, fromJSON, mergeSessions,
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,
            MAX_WEIGHT, MAX_REPS };

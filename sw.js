@@ -5,7 +5,7 @@
         you still get the last-good cached version. No manual cache-busting.
    - Static assets (icons, manifest): CACHE-FIRST (they rarely change).
    Bump CACHE whenever the asset list or strategy changes. */
-const CACHE = 'workout-v1';
+const CACHE = 'workout-v2';
 const ASSETS = [
   './', './index.html', './model.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/icon-180.png',
@@ -36,7 +36,17 @@ self.addEventListener('fetch', (e) => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
         return res;
-      }).catch(() => caches.match(e.request).then(hit => hit || caches.match('./index.html')))
+      /* ignoreSearch: the page requests `model.js?v=1.2.3` (the version query
+         that keeps HTML and JS in lockstep — see index.html) while install
+         precaches plain `./model.js`. Once a load has succeeded online the
+         versioned URL is cached under its own key and a strict match would
+         hit anyway; this covers the gap before that — installed, then offline
+         before a second online load — where only the unversioned precache
+         exists and a strict match would miss, leaving the app unable to boot.
+         Verified 2026-08-12 by deleting the versioned entry and loading
+         offline. */
+      }).catch(() => caches.match(e.request, { ignoreSearch: true })
+                       .then(hit => hit || caches.match('./index.html')))
     );
     return;
   }

@@ -1,10 +1,10 @@
 /* Deterministic tests for the workout tracker data model.
    Run: node test-model.js    (no dependencies) */
-const { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
+const { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
         createActiveSession, resumeOrFinish,
         createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
         LBS_PER_KG, sortSessionsDesc,
-        formatSets, localDateStr, buildStamp, sessionsAfter, toMarkdown, createExportTracker,
+        formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
         hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv,
         exportReminderDue, toJSON, fromJSON, mergeSessions,
         MAX_WEIGHT, MAX_REPS } = require('./model.js');
@@ -513,18 +513,32 @@ console.log('resumeOrFinish — the forgot-to-tap-Finish path');
   ok(resumeOrFinish({ ...withSets, date: 'yesterday' }, now) === 'drop', 'non-numeric date -> drop');
 }
 
-console.log('buildStamp');
+/* This section is the regression guard for the blank-screen bug of 2026-08-12:
+   index.html shipped calling model functions that its cached model.js didn't
+   have, so the app threw before rendering anything. The version query on the
+   <script> tag is what keeps the two files in lockstep, which only works if
+   that number and VERSION never drift apart. Asserted here because a mismatch
+   is invisible until it white-screens on a real device. */
+console.log('VERSION / index.html lockstep');
 {
-  ok(buildStamp(new Date(2026, 7, 12, 17, 1)) === 'v2026.08.12 17:01', 'formats a Date as zero-padded CalVer to the minute');
-  ok(buildStamp(new Date(2026, 0, 5, 9, 7)) === 'v2026.01.05 09:07', 'single-digit month/day/hour/minute all pad to two digits');
-  /* document.lastModified is a string like "08/12/2026 17:01:55", not a Date. */
-  ok(buildStamp('08/12/2026 17:01:55') === 'v2026.08.12 17:01', 'accepts the raw document.lastModified string');
-  ok(buildStamp('') === '' && buildStamp('nonsense') === '', 'unparseable input renders nothing rather than "Invalid Date"');
+  const fs = require('fs');
+  const html = fs.readFileSync(__dirname + '/index.html', 'utf8');
 
-  const a = buildStamp(new Date(2026, 7, 12, 9, 0));
-  const b = buildStamp(new Date(2026, 7, 12, 16, 30));
-  ok(a !== b, 'two deploys on the same day produce different stamps');
-  ok(a < b, 'stamps sort chronologically as plain strings');
+  ok(/^\d+\.\d+\.\d+$/.test(VERSION), `VERSION is a numeric semver string (got ${JSON.stringify(VERSION)})`);
+
+  const tag = html.match(/<script src="(model\.js[^"]*)"><\/script>/);
+  ok(!!tag, 'index.html loads model.js via a plain <script src> tag');
+
+  const q = tag && tag[1].match(/\?v=(.+)$/);
+  ok(!!q, `the model.js <script> tag carries a ?v= version query (got "${tag && tag[1]}")`);
+  ok(q && q[1] === VERSION,
+     `index.html requests model.js?v=${q && q[1]} and model.js reports ${VERSION} — these MUST match or the app white-screens`);
+
+  /* The gate is the safety net under the lockstep above; if it's ever removed,
+     a future mismatch goes back to being a silent blank page. */
+  ok(html.includes('model.js version mismatch'), 'the boot-time version gate is still present in index.html');
+  ok(html.includes("getElementById('build').textContent = 'v' + VERSION"),
+     'the on-screen badge renders the VERSION that actually loaded, not a duplicated constant');
 }
 
 console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + `  (${pass} passed, ${fail} failed)`);

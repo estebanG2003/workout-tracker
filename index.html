@@ -60,6 +60,15 @@
       font-variant-numeric: tabular-nums; letter-spacing: .02em;
     }
 
+    /* Shown only by the version gate, when the page is too broken to render. */
+    .stale-build { padding: 24px 16px; text-align: center; color: var(--text); }
+    .stale-build p { margin: 0 0 12px; color: var(--text-dim); }
+    .stale-build b { color: var(--text); font-size: 17px; }
+    .stale-build button {
+      margin-top: 4px; padding: 12px 28px; font-size: 16px; font-weight: 600;
+      color: #fff; background: var(--accent); border: 0; border-radius: var(--radius);
+    }
+
     header {
       position: sticky; top: 0; z-index: 20; background: var(--bg);
       padding: calc(14px + var(--safe-top)) 16px 8px; border-bottom: 1px solid var(--border);
@@ -384,13 +393,47 @@
     </div>
   </div>
 
-  <script src="model.js"></script>
+  <!-- The ?v= is load-bearing, not decoration. index.html and model.js are
+       cached independently (max-age=600), so without it a browser can pair a
+       fresh index.html with a stale model.js and every call into the model
+       throws before anything renders — a blank screen. The query makes the
+       version part of model.js's cache key, so new HTML always pulls the
+       matching JS. Keep it equal to VERSION in model.js. -->
+  <script src="model.js?v=1.0.0"></script>
   <script>
+  /* Version gate — MUST run before anything else touches the model. index.html
+     and model.js are separately cached files, so a stale one can slip through
+     (or a deploy can bump one without the other). When that happens every model
+     call below throws before a single pixel renders, and all you see is a blank
+     page with no clue why. Fail loudly with a one-tap recovery instead.
+     Logged workouts live in localStorage and are untouched by any of this. */
+  (function () {
+    const tag = document.querySelector('script[src^="model.js"]');
+    const want = tag ? (tag.getAttribute('src').split('?v=')[1] || '') : '';
+    const got = (window.WorkoutModel || {}).VERSION;
+    if (got && got === want) return;
+    /* Placeholder is a word, not "?", because the strip below would eat "?". */
+    const safe = s => String(s || 'none').replace(/[^\w.\-]/g, '');
+    document.getElementById('screen').innerHTML =
+      `<div class="stale-build">
+         <p><b>Reload needed</b></p>
+         <p>The app loaded mismatched files (expected ${safe(want)}, got ${safe(got)}).
+            Your saved workouts are safe — this only affects the page.</p>
+         <button id="hardReload">Reload</button>
+       </div>`;
+    document.getElementById('hardReload').onclick = () =>
+      location.replace(location.pathname + '?r=' + Date.now());
+    /* Stops the rest of the script deliberately: running it would only produce
+       a confusing cascade of TypeErrors on top of a message that already says
+       exactly what's wrong. */
+    throw new Error(`model.js version mismatch: expected ${want}, got ${got}`);
+  })();
+
   /* View layer. Core data model lives in model.js (shared with tests). */
-  const { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster, createUnitPref,
+  const { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster, createUnitPref,
           createActiveSession, resumeOrFinish,
           toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
-          sortSessionsDesc, formatSets, localDateStr, buildStamp, sessionsAfter, toMarkdown, createExportTracker,
+          sortSessionsDesc, formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
           exportReminderDue, toJSON, fromJSON, mergeSessions,
           hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv } = WorkoutModel;
   const store = createStore(localStorage);
@@ -1009,11 +1052,9 @@
   };
 
   /* ---------- Boot ---------- */
-  /* Build stamp, straight from the document's own Last-Modified — set by the
-     host at deploy time, so there is no constant to remember to bump. Offline
-     the service worker serves the cached response, whose header still describes
-     the build actually running: the honest answer to "am I up to date?". */
-  document.getElementById('build').textContent = buildStamp(document.lastModified);
+  /* Version badge. Reads the version out of the model that ACTUALLY loaded, not
+     a constant duplicated here — so what's on screen is what you're running. */
+  document.getElementById('build').textContent = 'v' + VERSION;
 
   /* Pick up whatever was in progress when the app was last closed: same-day
      goes straight back into the workout, an earlier day's un-Finished workout

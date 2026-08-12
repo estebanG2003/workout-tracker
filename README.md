@@ -45,6 +45,30 @@ Deterministic, dependency-free tests for the data model (146 checks: set logging
 chrome --headless=new --dump-dom http://localhost:8731/test-ui.html
 ```
 
+## Releasing
+
+The version shows in the bottom-left corner of the app, so you can tell at a
+glance whether a phone has the current build.
+
+**Bump it in two places, in the same commit:**
+
+1. `VERSION` in `model.js`
+2. the `?v=` on `<script src="model.js?v=...">` in `index.html`
+
+They are one number in two files on purpose. `index.html` and `model.js` are
+cached independently by the browser (`max-age=600` on GitHub Pages), so without
+the query string a fresh `index.html` can pair with a **stale** `model.js` — and
+since the view calls into the model immediately, that throws before anything
+renders. The result is a blank white page with no clue why. Making the version
+part of `model.js`'s URL means new HTML always fetches matching JS.
+
+`node test-model.js` fails if the two numbers drift apart, and `index.html` has a
+boot-time gate that shows a "Reload needed" screen instead of a blank page if a
+mismatch ever reaches a device anyway. Logged workouts are in `localStorage` and
+are never at risk from this.
+
+> Hit for real on 2026-08-12: `v1.0.0` is the first release with the lockstep.
+
 ## Files
 
 | File | Purpose |
