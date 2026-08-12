@@ -49,6 +49,17 @@
     input, textarea { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
     .app { max-width: 640px; margin: 0 auto; padding-bottom: calc(40px + var(--safe-bottom)); }
 
+    /* Build stamp. Sits in the bottom padding .app already reserves, below the
+       header (z 20) and the settings sheet (z 60), and non-interactive so it
+       can never eat a tap meant for the list scrolling underneath it. */
+    .build {
+      position: fixed; z-index: 10; pointer-events: none;
+      left: calc(10px + env(safe-area-inset-left, 0px));
+      bottom: calc(6px + var(--safe-bottom));
+      font-size: 11px; color: var(--text-dim); opacity: .6;
+      font-variant-numeric: tabular-nums; letter-spacing: .02em;
+    }
+
     header {
       position: sticky; top: 0; z-index: 20; background: var(--bg);
       padding: calc(14px + var(--safe-top)) 16px 8px; border-bottom: 1px solid var(--border);
@@ -315,6 +326,7 @@
 
     <main id="screen"></main>
   </div>
+  <div class="build" id="build"></div>
 
   <!-- Settings sheet -->
   <div class="overlay" id="settings" hidden>
@@ -378,7 +390,7 @@
   const { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster, createUnitPref,
           createActiveSession, resumeOrFinish,
           toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
-          sortSessionsDesc, formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
+          sortSessionsDesc, formatSets, localDateStr, buildStamp, sessionsAfter, toMarkdown, createExportTracker,
           exportReminderDue, toJSON, fromJSON, mergeSessions,
           hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv } = WorkoutModel;
   const store = createStore(localStorage);
@@ -997,6 +1009,12 @@
   };
 
   /* ---------- Boot ---------- */
+  /* Build stamp, straight from the document's own Last-Modified — set by the
+     host at deploy time, so there is no constant to remember to bump. Offline
+     the service worker serves the cached response, whose header still describes
+     the build actually running: the honest answer to "am I up to date?". */
+  document.getElementById('build').textContent = buildStamp(document.lastModified);
+
   /* Pick up whatever was in progress when the app was last closed: same-day
      goes straight back into the workout, an earlier day's un-Finished workout
      gets filed into history instead of thrown away. */

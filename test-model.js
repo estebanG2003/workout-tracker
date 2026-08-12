@@ -4,7 +4,7 @@ const { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
         createActiveSession, resumeOrFinish,
         createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
         LBS_PER_KG, sortSessionsDesc,
-        formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
+        formatSets, localDateStr, buildStamp, sessionsAfter, toMarkdown, createExportTracker,
         hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv,
         exportReminderDue, toJSON, fromJSON, mergeSessions,
         MAX_WEIGHT, MAX_REPS } = require('./model.js');
@@ -511,6 +511,20 @@ console.log('resumeOrFinish — the forgot-to-tap-Finish path');
   ok(resumeOrFinish({ ...withSets, split: 'cardio' }, now) === 'drop', 'unknown split -> drop, never renders an invalid session');
   ok(resumeOrFinish({ ...withSets, entries: 'nope' }, now) === 'drop', 'malformed entries -> drop');
   ok(resumeOrFinish({ ...withSets, date: 'yesterday' }, now) === 'drop', 'non-numeric date -> drop');
+}
+
+console.log('buildStamp');
+{
+  ok(buildStamp(new Date(2026, 7, 12, 17, 1)) === 'v2026.08.12 17:01', 'formats a Date as zero-padded CalVer to the minute');
+  ok(buildStamp(new Date(2026, 0, 5, 9, 7)) === 'v2026.01.05 09:07', 'single-digit month/day/hour/minute all pad to two digits');
+  /* document.lastModified is a string like "08/12/2026 17:01:55", not a Date. */
+  ok(buildStamp('08/12/2026 17:01:55') === 'v2026.08.12 17:01', 'accepts the raw document.lastModified string');
+  ok(buildStamp('') === '' && buildStamp('nonsense') === '', 'unparseable input renders nothing rather than "Invalid Date"');
+
+  const a = buildStamp(new Date(2026, 7, 12, 9, 0));
+  const b = buildStamp(new Date(2026, 7, 12, 16, 30));
+  ok(a !== b, 'two deploys on the same day produce different stamps');
+  ok(a < b, 'stamps sort chronologically as plain strings');
 }
 
 console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + `  (${pass} passed, ${fail} failed)`);

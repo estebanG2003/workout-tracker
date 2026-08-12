@@ -377,6 +377,17 @@
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
   }
 
+  /* Build stamp for the corner of the app, from the document's Last-Modified.
+     CalVer to the minute: DERIVED rather than hand-bumped, so it can never
+     claim to be current when it isn't — the one failure mode a version label
+     has. Minutes included so two deploys on the same day stay distinguishable.
+     Returns '' on an unparseable date rather than showing "Invalid Date". */
+  function buildStamp(lastModified) {
+    const t = lastModified instanceof Date ? lastModified : new Date(lastModified);
+    if (isNaN(t.getTime())) return '';
+    return `v${t.getFullYear()}.${pad2(t.getMonth() + 1)}.${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}`;
+  }
+
   /* Sessions with date strictly after `ts` (0 if omitted -> everything). Used
      for "export only what's new since last export". */
   function sessionsAfter(sessions, ts) {
@@ -496,7 +507,7 @@
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
            LBS_PER_KG, sortSessionsDesc,
-           formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
+           formatSets, localDateStr, buildStamp, sessionsAfter, toMarkdown, createExportTracker,
            exportReminderDue, toJSON, fromJSON, mergeSessions,
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,
            MAX_WEIGHT, MAX_REPS };
