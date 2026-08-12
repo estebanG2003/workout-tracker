@@ -252,6 +252,37 @@
     };
   }
 
+  /* ---- In-progress session persistence ----
+     The active session used to live only in memory until Finish Workout, so
+     closing the app — or just forgetting to tap Finish, which is the norm —
+     lost the entire workout. It's now mirrored here on every render. Stores
+     the literal string "null" when there's nothing active, so any {getItem,
+     setItem} shim works (no removeItem needed). */
+  function createActiveSession(storage) {
+    const ASKEY = 'workout-active-v1';
+    return {
+      get() {
+        try { return JSON.parse(storage.getItem(ASKEY) || 'null'); } catch { return null; }
+      },
+      set(session) { storage.setItem(ASKEY, JSON.stringify(session || null)); },
+    };
+  }
+
+  /* What to do on boot with the persisted in-progress session:
+       'resume' — started today; drop straight back into it mid-workout.
+       'finish' — started on an earlier day with sets logged; Finish was never
+                  tapped, so file it into history rather than lose it.
+       'drop'   — nothing there, malformed, or abandoned with no sets logged.
+     Day boundary rather than an elapsed-time gap: `date` is the START time, and
+     a workout spanning midnight still belongs to the day it started. */
+  function resumeOrFinish(saved, now) {
+    if (!saved || typeof saved !== 'object') return 'drop';
+    if (!SPLITS.includes(saved.split) || !Array.isArray(saved.entries)) return 'drop';
+    if (typeof saved.date !== 'number') return 'drop';
+    if (localDateStr(saved.date) === localDateStr(now)) return 'resume';
+    return saved.entries.some(e => e && e.sets && e.sets.length) ? 'finish' : 'drop';
+  }
+
   /* ---- Roster: the persistent, ordered, per-split exercise list ----
      This is the SOURCE OF TRUTH for which exercises show up in a session and
      in what order — deliberately independent of what actually got logged, so
@@ -462,6 +493,7 @@
   }
 
   return { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
+           createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
            LBS_PER_KG, sortSessionsDesc,
            formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,

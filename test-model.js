@@ -1,6 +1,7 @@
 /* Deterministic tests for the workout tracker data model.
    Run: node test-model.js    (no dependencies) */
 const { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
+        createActiveSession, resumeOrFinish,
         createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
         LBS_PER_KG, sortSessionsDesc,
         formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
@@ -461,6 +462,55 @@ console.log('toJSON / fromJSON / mergeSessions (backup + restore)');
   const merged = mergeSessions([s1], [s1, s2]);
   ok(merged.length === 2, 'mergeSessions dedupes by id — s1 already present is not duplicated');
   ok(merged.some(s => s.id === 's1') && merged.some(s => s.id === 's2'), 'merged set contains both sessions');
+}
+
+console.log('in-progress session persistence');
+{
+  const storage = memStorage();
+  const active = createActiveSession(storage);
+  ok(active.get() === null, 'nothing persisted yet reads back as null');
+
+  const s = createStore(storage).load();
+  const session = s.startSession('push');
+  s.logSet(session, 'Bench Press', 135, 8);
+  active.set(session);
+
+  const restored = createActiveSession(storage).get();
+  ok(restored && restored.id === session.id, 'active session round-trips through storage');
+  ok(restored.entries[0].sets[0].weight === 135, 'logged sets survive the round-trip');
+
+  active.set(null);
+  ok(active.get() === null, 'clearing on finish/discard reads back as null');
+
+  storage.setItem('workout-active-v1', 'not json{{');
+  ok(createActiveSession(storage).get() === null, 'corrupted storage reads back as null, does not throw');
+}
+
+console.log('resumeOrFinish — the forgot-to-tap-Finish path');
+{
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = new Date(2026, 7, 12, 19, 0).getTime();     // local, not UTC
+  const withSets = { id: 'a', date: now, split: 'push', entries: [{ exercise: 'Bench Press', sets: [{ weight: 135, reps: 8 }] }] };
+  const empty = { id: 'b', date: now, split: 'push', entries: [] };
+
+  ok(resumeOrFinish(null, now) === 'drop', 'nothing persisted -> drop');
+  ok(resumeOrFinish(withSets, now) === 'resume', 'started today -> resume the workout');
+  ok(resumeOrFinish(empty, now) === 'resume', "today's session with no sets yet still resumes");
+
+  const y = ts => ({ ...withSets, date: ts });
+  ok(resumeOrFinish(y(now - DAY), now) === 'finish', 'yesterday + sets logged -> file it into history');
+  ok(resumeOrFinish(y(now - 30 * DAY), now) === 'finish', 'a month-old un-Finished session is still saved, not lost');
+  ok(resumeOrFinish({ ...empty, date: now - DAY }, now) === 'drop', 'earlier day with zero sets -> drop, nothing to save');
+
+  /* Started 23:30, app reopened 00:30 the next calendar day: the boundary is
+     the START date, so this is a different day -> finish, not resume. */
+  const lateNight = new Date(2026, 7, 11, 23, 30).getTime();
+  ok(resumeOrFinish(y(lateNight), new Date(2026, 7, 12, 0, 30).getTime()) === 'finish',
+     'session started before midnight, reopened after -> filed to history under its start date');
+
+  ok(resumeOrFinish({ ...withSets, split: 'cardio' }, now) === 'drop', 'unknown split -> drop, never renders an invalid session');
+  ok(resumeOrFinish({ ...withSets, entries: 'nope' }, now) === 'drop', 'malformed entries -> drop');
+  ok(resumeOrFinish({ ...withSets, date: 'yesterday' }, now) === 'drop', 'non-numeric date -> drop');
 }
 
 console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + `  (${pass} passed, ${fail} failed)`);

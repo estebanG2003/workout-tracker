@@ -376,6 +376,7 @@
   <script>
   /* View layer. Core data model lives in model.js (shared with tests). */
   const { SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster, createUnitPref,
+          createActiveSession, resumeOrFinish,
           toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
           sortSessionsDesc, formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
           exportReminderDue, toJSON, fromJSON, mergeSessions,
@@ -385,6 +386,7 @@
   const roster = createRoster(localStorage);            // persistent per-split exercise list
   const unitPref = createUnitPref(localStorage);
   const exportTracker = createExportTracker(localStorage);
+  const activeStore = createActiveSession(localStorage); // crash/forgot-to-Finish safety net
   store.load();
 
   /* Current display unit ('lbs' | 'kg'). Weights are stored canonically in lbs;
@@ -483,6 +485,11 @@
 
   /* ---------- Render dispatch ---------- */
   function render() {
+    /* Every state change ends in a render, so this one line is the whole
+       persistence hook for the in-progress session — no per-mutation call
+       sites to keep in sync. Writes null once the session is finished or
+       discarded, which also clears the restore on the next boot. */
+    activeStore.set(activeSession);
     backBtn.hidden = view === 'home';
     finishBtn.hidden = view !== 'active';
     if (view === 'home') { titleEl.textContent = 'Workout'; renderHome(); }
@@ -990,6 +997,15 @@
   };
 
   /* ---------- Boot ---------- */
+  /* Pick up whatever was in progress when the app was last closed: same-day
+     goes straight back into the workout, an earlier day's un-Finished workout
+     gets filed into history instead of thrown away. */
+  {
+    const saved = activeStore.get();
+    const action = resumeOrFinish(saved, Date.now());
+    if (action === 'resume') { activeSession = saved; view = 'active'; }
+    else if (action === 'finish') store.finishSession(saved);
+  }
   render();
 
   /* ---------- Service worker ---------- */
