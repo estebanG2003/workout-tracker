@@ -399,7 +399,7 @@
        throws before anything renders — a blank screen. The query makes the
        version part of model.js's cache key, so new HTML always pulls the
        matching JS. Keep it equal to VERSION in model.js. -->
-  <script src="model.js?v=1.0.0"></script>
+  <script src="model.js?v=1.0.1"></script>
   <script>
   /* Version gate — MUST run before anything else touches the model. index.html
      and model.js are separately cached files, so a stale one can slip through
@@ -824,7 +824,7 @@
   /* Downloads a .md file (unless a test hook intercepts it — see test-ui.html). */
   function download(filename, text) {
     if (typeof window.__exportHook === 'function') { window.__exportHook(filename, text); return; }
-    const blob = new Blob([text], { type: 'text/markdown' });
+    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename;
