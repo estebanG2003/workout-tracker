@@ -250,6 +250,18 @@
     .sd-entry:last-child { border-bottom: none; }
     .sd-ex { font-size: 14.5px; font-weight: 600; margin-bottom: 3px; }
     .sd-sets { font-size: 13.5px; color: var(--text-dim); }
+    /* Edit mode only: add a set, or an exercise the workout got finished
+       without. Both land in the inline set editor so the numbers can be
+       corrected on the spot. */
+    .sd-add-set {
+      margin-top: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim);
+      padding: 6px 14px; border-radius: 9px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .sd-add-ex {
+      width: 100%; margin: 14px 0 2px; border: 1.5px dashed var(--border); background: transparent;
+      color: var(--text-dim); border-radius: var(--radius); padding: 13px; font-size: 15px; cursor: pointer;
+      text-align: center; text-align-last: center; -webkit-appearance: none; appearance: none;
+    }
 
     .empty { text-align: center; color: var(--text-dim); padding: 60px 20px; }
     .empty .big { font-size: 44px; margin-bottom: 10px; }
@@ -399,7 +411,7 @@
        throws before anything renders — a blank screen. The query makes the
        version part of model.js's cache key, so new HTML always pulls the
        matching JS. Keep it equal to VERSION in model.js. -->
-  <script src="model.js?v=1.0.1"></script>
+  <script src="model.js?v=1.0.2"></script>
   <script>
   /* Version gate — MUST run before anything else touches the model. index.html
      and model.js are separately cached files, so a stale one can slip through
@@ -623,6 +635,23 @@
     const applied = result !== null && result !== false;
     if (applied && scope !== 'active') store.save();
     return applied;
+  }
+
+  /* Appends a set to `exercise` in the session `scope` names, then opens it in
+     the inline editor. Prefilled from the last known numbers for that exercise
+     (defaultsFor), since correcting them is the next step anyway; reps floor at
+     1 because logSet rejects a zero-rep set. This is what makes Finish
+     recoverable: the model always allowed writing to a finished session, only
+     the History UI had no way to reach it. */
+  function addSetInEdit(scope, exercise) {
+    const session = scope === 'active' ? activeSession : store.sessionById(scope);
+    if (!session) return;
+    const d = store.defaultsFor(session, exercise);
+    if (!store.logSet(session, exercise, d.weight, d.reps || 1)) return;
+    if (scope !== 'active') store.save();
+    const entry = session.entries.find(en => en.exercise === exercise);
+    editingSet = { scope, exercise, index: entry.sets.length - 1 };
+    render();
   }
 
   /* Renders one exercise's logged sets as edit/delete-able rows. `editing`
@@ -887,6 +916,11 @@
             const listEl = entryEl.querySelector('.set-list');
             listEl.innerHTML = setRowsHtml(e.sets, editingHere);
             wireSetList(listEl, e.exercise, s.id);
+            const addSetBtn = document.createElement('button');
+            addSetBtn.className = 'sd-add-set';
+            addSetBtn.textContent = '+ set';
+            addSetBtn.onclick = () => addSetInEdit(s.id, e.exercise);
+            entryEl.appendChild(addSetBtn);
           } else {
             entryEl.innerHTML = `<div class="sd-ex">${escapeHtml(e.exercise)}</div><div class="sd-sets">${fmtSetsU(e.sets)}</div>`;
           }
@@ -895,6 +929,24 @@
       }
 
       if (isEditing) {
+        /* Pick from this split's roster so a re-added exercise matches the name
+           already in history (a typo would fork "Last time" into two lines);
+           "Other…" falls back to a free-text prompt for a one-off. */
+        const addEx = document.createElement('select');
+        addEx.className = 'sd-add-ex';
+        addEx.add(new Option('+ Add exercise…', ''));
+        (roster.get(s.split).length ? roster.get(s.split) : exercises.forSplit(s.split))
+          .forEach(n => addEx.add(new Option(n, n)));
+        addEx.add(new Option('Other…', '__other'));
+        addEx.onchange = () => {
+          let name = addEx.value;
+          addEx.selectedIndex = 0;
+          if (name === '__other') name = window.prompt('Exercise name:');
+          if (!name || !name.trim()) return;
+          addSetInEdit(s.id, name.trim());
+        };
+        detail.appendChild(addEx);
+
         const delSessionBtn = document.createElement('button');
         delSessionBtn.className = 'danger-btn session-del-btn';
         delSessionBtn.textContent = 'Delete this workout';

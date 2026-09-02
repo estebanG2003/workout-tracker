@@ -355,6 +355,50 @@ iframe.addEventListener('load', () => {
       histSetRows = pushCard.querySelectorAll('.session-detail .set-list .set-row');
       ok(histSetRows.length === 1, 'deleting a set from history persists — one set row remains, got ' + histSetRows.length);
 
+      // ---- History: a finished workout still accepts a forgotten exercise / set ----
+      // The real failure this covers: tapping Finish before logging everything.
+      let addEx = pushCard.querySelector('.session-detail .sd-add-ex');
+      ok(!!addEx, 'edit mode offers an add-exercise picker on a finished workout');
+      ok([...addEx.options].some(o => o.value === 'Overhead Press'), "picker lists the split's roster, got: " + [...addEx.options].map(o => o.value).join('|'));
+      addEx.value = 'Overhead Press';
+      addEx.dispatchEvent(new Event('change', { bubbles: true }));
+      cards = d.querySelectorAll('.session-card');
+      pushCard = [...cards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      let entries = [...pushCard.querySelectorAll('.session-detail .sd-entry')];
+      ok(entries.length === 2, 'the forgotten exercise is appended to the finished workout, got ' + entries.length);
+      const ohpEntry = entries.find(en => en.querySelector('.sd-ex').textContent === 'Overhead Press');
+      ok(!!ohpEntry, 'the new entry is named Overhead Press');
+      let editRow = ohpEntry.querySelector('.set-row.editing');
+      ok(!!editRow, 'the added set opens straight into the inline editor');
+      editRow.querySelector('.edit-w').value = '95';
+      editRow.querySelector('.edit-r').value = '6';
+      click(editRow.querySelector('[data-save-set]'));
+
+      // "+ set" on an exercise that IS there adds a second row to it
+      cards = d.querySelectorAll('.session-card');
+      pushCard = [...cards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      const benchEntry = [...pushCard.querySelectorAll('.session-detail .sd-entry')].find(en => en.querySelector('.sd-ex').textContent === 'Bench Press');
+      ok(benchEntry.querySelectorAll('.set-row').length === 1, 'Bench Press still has its one surviving set before + set');
+      click(benchEntry.querySelector('.sd-add-set'));
+      cards = d.querySelectorAll('.session-card');
+      pushCard = [...cards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      const benchEntry2 = [...pushCard.querySelectorAll('.session-detail .sd-entry')].find(en => en.querySelector('.sd-ex').textContent === 'Bench Press');
+      ok(benchEntry2.querySelectorAll('.set-row').length === 2, '+ set appends a row to an existing exercise, got ' + benchEntry2.querySelectorAll('.set-row').length);
+      click(benchEntry2.querySelector('.set-row.editing [data-cancel-set]'));
+
+      // leaving edit mode: the additions are persisted and read back read-only
+      cards = d.querySelectorAll('.session-card');
+      pushCard = [...cards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      click(pushCard.querySelector('.session-detail [data-edit-toggle]'));   // Done
+      cards = d.querySelectorAll('.session-card');
+      pushCard = [...cards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+      ok(pushCard.querySelector('.session-detail').textContent.includes('95×6'), 'the added exercise persists with the edited numbers, got: ' + pushCard.querySelector('.session-detail').textContent.replace(/\s+/g,' '));
+      ok(pushCard.querySelector('.session-head').textContent.includes('3 sets'), 'the card set-count reflects the additions, got: ' + pushCard.querySelector('.session-head').textContent.replace(/\s+/g,' '));
+      ok(pushCard.querySelector('.session-detail .sd-add-ex') === null, 'the add-exercise picker is hidden again outside edit mode');
+      click(pushCard.querySelector('.session-detail [data-edit-toggle]'));   // back into edit mode for the delete below
+      cards = d.querySelectorAll('.session-card');
+      pushCard = [...cards].find(c => c.querySelector('.session-split').textContent.includes('Push'));
+
       click(pushCard.querySelector('.session-detail .session-del-btn'));
       cards = d.querySelectorAll('.session-card');
       ok(cards.length === 1, 'deleting the Push workout leaves only the Legs one, got ' + cards.length);
