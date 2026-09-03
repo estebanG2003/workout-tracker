@@ -1,0 +1,5 @@
+# Git stores LF for every text file and checks LF back out, so a tool that writes
+# CRLF (Python's Path.write_text does on Windows) can no longer turn a small edit
+# into a whole-file diff. Binary files are left to text=auto detection on purpose;
+# do not add explicit per-extension text rules without checking what they capture.
+* text=auto eol=lf
