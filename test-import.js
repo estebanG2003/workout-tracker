@@ -105,5 +105,34 @@ console.log('importWorkoutCSV: rejects what it cannot read');
   ok(M.importWorkoutCSV(bad, {}).sessions.length === 0, 'impossible date (31 Feb) is skipped, not rolled into March');
 }
 
+console.log('importWorkoutCSV: review fixes (wrong data in is worse than a row skipped)');
+{
+  const strongHead = 'Date;Workout Name;Exercise Name;Set Order;Weight (kg);Reps\n';
+  const r1 = M.importWorkoutCSV(strongHead + '2025-01-06 07:15:00;Push;Bench Press;1;60,5;8', {});
+  ok(r1.sessions[0].entries[0].sets[0].weight === M.toCanonicalWeight(60.5, 'kg'), 'decimal comma "60,5" in a semicolon file is 60.5, not a skipped row');
+
+  const r2 = M.importWorkoutCSV(strongHead + '2025-01-06 07:15:00;Push;Bench Press;1;60;8.6\n2025-01-06 07:15:00;Push;Bench Press;2;60;500', {});
+  const sets2 = r2.sessions[0].entries[0].sets;
+  ok(sets2[0].reps === 9, 'reps are rounded to a whole number like logSet does, got ' + sets2[0].reps);
+  ok(sets2[1].reps === M.MAX_REPS, 'reps are clamped to MAX_REPS like logSet does, got ' + sets2[1].reps);
+
+  const r3 = M.importWorkoutCSV([
+    'title,start_time,end_time,description,exercise_title,superset_id,exercise_notes,set_index,set_type,weight_kg,reps',
+    'Pull,"1 Oct 2026, 18:00",,,Pull Up (Assisted),,,0,normal,-25,8',
+    'Pull,"1 Oct 2026, 18:00",,,Row,,,0,normal,50,8',
+  ].join('\n'), {});
+  ok(r3.sessions[0].entries.length === 1 && r3.sessions[0].entries[0].exercise === 'Row', 'a negative (assisted) weight is skipped, never stored as bodyweight');
+  ok(r3.skippedSets === 1, 'the assisted set is counted as skipped');
+
+  const row = t => `Date,Workout Name,Exercise Name,Set Order,Weight (lbs),Reps\n2026-10-01 18:00:15,${t},Bench Press,1,100,5`;
+  ok(M.importWorkoutCSV(row('Push'), {}).sessions[0].id === M.importWorkoutCSV(row('Push A'), {}).sessions[0].id,
+     'renaming a workout in the source app does not change its id, so re-import still dedupes');
+
+  ok(M.importWorkoutCSV(row('Push'), {}).unitFromHeader === true, 'unitFromHeader true when the header names the unit');
+  const bare = 'Date,Workout Name,Exercise Name,Set Order,Weight,Reps\n2026-10-01 18:00:15,Push,Bench Press,1,60,5';
+  ok(M.importWorkoutCSV(bare, {}).unitFromHeader === false, 'unitFromHeader false for a bare "Weight" column, so the UI must ask');
+  ok(M.importWorkoutCSV(HEVY_LB, {}).unitFromHeader === true, 'Hevy always names its unit');
+}
+
 console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + `  (${pass} passed, ${fail} failed)`);
 process.exit(fail === 0 ? 0 : 1);

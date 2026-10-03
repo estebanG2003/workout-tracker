@@ -1,0 +1,105 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>UI test import safety</title></head>
+<body data-result="">
+<script>
+/* Import safety, from the review of the CSV importer: Cancel aborts, an
+   unlabelled weight column makes the app ASK the unit, and a failed save
+   leaves history exactly as it was. Run via: node run-ui-tests.js */
+const results = [];
+function ok(cond, msg) { results.push({ pass: !!cond, msg }); }
+function finish() {
+  const pass = results.filter(r => r.pass).length;
+  const fail = results.filter(r => !r.pass);
+  document.body.setAttribute('data-result', JSON.stringify({ pass, fail: fail.length, failMsgs: fail.map(f => f.msg) }));
+  document.title = fail.length === 0 ? 'ALL PASS' : 'FAILURES';
+}
+function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+
+const MIXED = 'Date,Workout Name,Exercise Name,Set Order,Weight (lbs),Reps\n' +
+  '2026-09-01 18:00:00,Push,Bench Press,1,100,5\n2026-09-02 18:00:00,Full Body,Squat,1,135,5';
+const BARE = 'Date,Workout Name,Exercise Name,Set Order,Weight,Reps\n2026-09-03 18:00:00,Push,Bench Press,1,60,5';
+const ONE = 'Date,Workout Name,Exercise Name,Set Order,Weight (lbs),Reps\n2026-09-04 18:00:00,Legs,Squat,1,135,5';
+
+localStorage.clear();
+localStorage.setItem('workout-app-v1', JSON.stringify([
+  { id: 'mine', date: Date.now() - 86400000, split: 'legs', entries: [{ exercise: 'Squat', sets: [{ weight: 100, reps: 5 }] }] },
+]));
+const iframe = document.createElement('iframe');
+iframe.style.cssText = 'width:390px;height:844px;';
+iframe.src = 'index.html';
+document.body.appendChild(iframe);
+
+iframe.addEventListener('load', () => {
+  const w = iframe.contentWindow, d = iframe.contentDocument;
+  w.confirm = () => true;
+  w.alert = (msg) => { w.__lastAlert = msg; };
+  const prompts = [];
+  let answers = [];
+  w.prompt = (msg) => { prompts.push(msg); return answers.shift(); };
+  w.FileReader = function () {
+    this.readAsText = (file) => setTimeout(() => {
+      this.result = file.__testText !== undefined ? file.__testText : '';
+      if (this.onload) this.onload();
+    }, 0);
+  };
+  const choose = (text) => {
+    click(d.getElementById('settingsBtn'));
+    const input = d.getElementById('importCsvInput');
+    const dt = new w.DataTransfer();
+    const f = new w.File([text], 'x.csv', { type: 'text/csv' });
+    f.__testText = text;
+    dt.items.add(f);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const stored = () => JSON.parse(w.localStorage.getItem('workout-app-v1'));
+  const step = (fn, next) => setTimeout(() => { try { fn(); } catch (e) { ok(false, 'EXCEPTION: ' + e.message); } next(); }, 60);
+
+  setTimeout(() => {
+    // 1. Cancel at the split question aborts the WHOLE import
+    answers = [null];
+    choose(MIXED);
+    step(() => {
+      ok(prompts.length === 1, 'asked about the unmatched workout');
+      ok(stored().length === 1, 'Cancel imports nothing, not even the recognised Push workout, got ' + stored().length);
+      ok(/cancel/i.test(w.__lastAlert || ''), 'says the import was cancelled, got: ' + w.__lastAlert);
+    }, () => {
+      // 2. Bare "Weight": the app asks the unit, and the answer is used
+      prompts.length = 0; answers = ['kg'];
+      choose(BARE);
+      step(() => {
+        ok(prompts.length === 1 && /kg/.test(prompts[0]) && /lbs/.test(prompts[0]), 'asks whether the weights are kg or lbs, got: ' + prompts[0]);
+        const s = stored().find(x => x.date === new Date(2026, 8, 3, 18).getTime());
+        ok(!!s && s.entries[0].sets[0].weight === w.WorkoutModel.toCanonicalWeight(60, 'kg'), 'answering kg stores 60 kg as canonical lbs (132.3)');
+      }, () => {
+        // 3. Cancelling the unit question imports nothing
+        prompts.length = 0; answers = [null];
+        const before = stored().length;
+        choose(BARE.replace('2026-09-03', '2026-09-05'));
+        step(() => {
+          ok(stored().length === before, 'cancelling the unit question imports nothing');
+        }, () => {
+          // 4. Storage full: history is left exactly as it was, in memory and on disk
+          const before = stored().length;
+          const orig = w.Storage.prototype.setItem;
+          w.Storage.prototype.setItem = function (k, v) {
+            if (k === 'workout-app-v1') throw new w.DOMException('full', 'QuotaExceededError');
+            return orig.call(this, k, v);
+          };
+          prompts.length = 0; answers = [];
+          choose(ONE);
+          step(() => {
+            ok(/storage|space|full/i.test(w.__lastAlert || ''), 'a failed save is reported, got: ' + w.__lastAlert);
+            w.Storage.prototype.setItem = orig;
+            ok(stored().length === before, 'nothing was written to storage');
+            click(d.getElementById('backBtn'));
+            click(d.getElementById('historyLink'));
+            ok(d.querySelectorAll('.session-card').length === before, 'in-memory history rolled back too (no phantom session waiting for the next save)');
+          }, finish);
+        });
+      });
+    });
+  }, 150);
+});
+</script>
+</body></html>
