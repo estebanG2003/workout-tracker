@@ -270,6 +270,19 @@
     .empty { text-align: center; color: var(--text-dim); padding: 60px 20px; }
     .empty .big { font-size: 44px; margin-bottom: 10px; }
 
+    /* ---------- Progress ---------- */
+    #progressLink { margin-top: 0; }
+    .progress-section { margin-bottom: 16px; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .progress-section h2 { font-size: 14px; margin: 0 0 12px; }
+    .heatmap { display: grid; grid-template-rows: repeat(7, 1fr); grid-auto-flow: column; grid-template-columns: repeat(16, 1fr); gap: 3px; }
+    .hm-cell { aspect-ratio: 1; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--border); }
+    .hm-cell.on { background: var(--accent); border-color: var(--accent); }
+    .weekly-volume { display: block; width: 100%; height: auto; }
+    .wv-bar { fill: var(--accent); }
+    .chart-axis { stroke: var(--border); stroke-width: 1; }
+    .chart-tick { fill: var(--text-dim); font-size: 11px; }
+    .milestone { font-size: 14px; margin: 6px 0; }
+
     /* ---------- Settings sheet (reused pattern from Grocery List) ---------- */
     .overlay { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.4); display: flex; align-items: flex-end; justify-content: center; }
     .overlay[hidden] { display: none; }
@@ -450,6 +463,8 @@
           createActiveSession, resumeOrFinish,
           createBarbellPref, createPlatePref, platesPerSide, nearestLoadable, warmupSets,
           isNewPR, sessionVolume,
+          activityByDay, weekStart, weeklyVolume, plateMilestones, bigThreeTotal,
+          exerciseKey, exerciseHistory,
           toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
           sortSessionsDesc, formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
           exportReminderDue, toJSON, fromJSON, mergeSessions,
@@ -516,7 +531,7 @@
   applySettings();
 
   /* ---------- App state ---------- */
-  let view = 'home';           // 'home' | 'active' | 'history'
+  let view = 'home';           // 'home' | 'active' | 'history' | 'progress'
   let activeSession = null;    // in-progress session object (not yet saved)
   let expandedExercise = null; // name of exercise expanded in the active view
   let draft = {};              // { [exercise]: { weight, reps } } — pending values before Log Set
@@ -570,6 +585,7 @@
     if (view === 'home') { titleEl.textContent = 'Workout'; renderHome(); }
     else if (view === 'active') { titleEl.textContent = SPLIT_LABEL[activeSession.split]; renderActive(); }
     else if (view === 'history') { titleEl.textContent = 'History'; renderHistory(); }
+    else if (view === 'progress') { titleEl.textContent = 'Progress'; renderProgress(); }
   }
 
   function renderHome() {
@@ -580,6 +596,7 @@
           ${SPLITS.map(s => `<button class="split-btn" data-split="${s}"><span class="emoji">${SPLIT_EMOJI[s]}</span><span>${SPLIT_LABEL[s]}</span></button>`).join('')}
         </div>
         <button class="history-link" id="historyLink">View history</button>
+        <button class="history-link" id="progressLink">View progress</button>
       </div>`;
     screenEl.querySelectorAll('.split-btn').forEach(b => {
       b.onclick = () => {
@@ -593,6 +610,7 @@
       editingSet = null; expandedHistoryId = null; historyEditId = null;
       view = 'history'; render();
     };
+    document.getElementById('progressLink').onclick = () => { view = 'progress'; render(); };
   }
 
   function renderActive() {
@@ -870,6 +888,54 @@
       };
     }
     return li;
+  }
+
+  /* Calendar-day stepping keeps the heatmap Monday-first across DST. */
+  function renderProgress() {
+    const sessions = store.sessions;
+    const counts = activityByDay(sessions);
+    const day = new Date(weekStart(Date.now()));
+    day.setDate(day.getDate() - 15 * 7);
+    const cells = [];
+    for (let i = 0; i < 112; i++) {
+      const date = localDateStr(day.getTime()), count = counts[date] || 0;
+      cells.push(`<div class="hm-cell${count ? ' on' : ''}" data-date="${date}" data-count="${count}" title="${date}: ${count} workouts" aria-label="${date}: ${count} workouts"></div>`);
+      day.setDate(day.getDate() + 1);
+    }
+    const weeks = weeklyVolume(sessions).slice(-12);
+    const maxVolume = Math.max(1, ...weeks.map(w => dispW(w.volume)));
+    const width = 268 / Math.max(1, weeks.length);
+    const bars = weeks.map((w, i) => {
+      const volume = dispW(w.volume), height = volume / maxVolume * 100;
+      return `<rect class="wv-bar" x="${36 + i * width + 2}" y="${116 - height}" width="${Math.max(1, width - 4)}" height="${height}" rx="2"><title>${localDateStr(w.weekStart)}: ${Math.round(volume).toLocaleString('en-US')} ${unit}</title></rect>`;
+    }).join('');
+    const names = new Map();
+    for (const session of sortSessionsDesc(sessions)) {
+      for (const entry of session.entries) {
+        const key = exerciseKey(entry.exercise);
+        if (!names.has(key)) names.set(key, entry.exercise);
+      }
+    }
+    const barbellLifts = [...names.values()].filter(name => barbellPref.is(name) &&
+      exerciseHistory(sessions, name).some(row => row.sets.length));
+    const milestones = barbellLifts.map(name => {
+      const heaviest = Math.max(...exerciseHistory(sessions, name).map(row => row.topWeight));
+      const plates = plateMilestones(heaviest);
+      return plates ? `<div class="milestone">${escapeHtml(name)}: ${plates} plate${plates === 1 ? '' : 's'}</div>` : '';
+    }).join('');
+    const total = bigThreeTotal(sessions, barbellPref.is).total;
+    screenEl.innerHTML = `
+      <section class="progress-section"><h2>Activity · 16 weeks</h2><div class="heatmap">${cells.join('')}</div><p class="set-hint">Monday to Sunday, top to bottom</p></section>
+      <section class="progress-section"><h2>Weekly volume (${unit})</h2>
+        ${weeks.length ? `<svg class="weekly-volume" viewBox="0 0 320 144" role="img" aria-label="Weekly volume in ${unit}">
+          <line class="chart-axis" x1="36" y1="116" x2="304" y2="116"/>
+          <text class="chart-tick" x="0" y="20">${Math.round(maxVolume).toLocaleString('en-US')}</text>
+          <text class="chart-tick" x="22" y="116">0</text>${bars}
+          <text class="chart-tick" x="36" y="137">${escapeHtml(formatDate(weeks[0].weekStart))}</text>
+          <text class="chart-tick" x="304" y="137" text-anchor="end">${escapeHtml(formatDate(weeks[weeks.length - 1].weekStart))}</text>
+        </svg>` : '<p class="set-hint">No workouts logged yet.</p>'}
+      </section>
+      ${barbellLifts.length ? `<section class="progress-section milestones"><h2>Milestones</h2>${milestones}${total !== null ? `<div class="milestone">Total: ${Math.round(dispW(total)).toLocaleString('en-US')} ${unit}</div>` : ''}</section>` : ''}`;
   }
 
   function renderHistory() {
