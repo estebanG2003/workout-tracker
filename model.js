@@ -23,7 +23,7 @@
      a matching model.js instead of reusing a cached one, and index.html
      compares them at boot so a missed bump surfaces instead of white-screening.
      See README "Releasing". */
-  const VERSION = '1.0.2';
+  const VERSION = '1.1.0';
 
   const SPLITS = ['push', 'pull', 'legs'];
   const VARIANTS = ['A', 'B'];
