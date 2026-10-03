@@ -612,6 +612,35 @@
     return out;
   }
 
+  function sessionVolume(session) {
+    return session.entries.reduce((sum, entry) =>
+      sum + entry.sets.reduce((n, set) => n + set.weight * set.reps, 0), 0);
+  }
+
+  function weekStart(ts) {
+    const d = new Date(ts);
+    d.setDate(d.getDate() - (d.getDay() + 6) % 7);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+
+  function weeklyVolume(sessions) {
+    if (!sessions.length) return [];
+    const volumes = new Map();
+    for (const session of sessions) {
+      const week = weekStart(session.date);
+      volumes.set(week, (volumes.get(week) || 0) + sessionVolume(session));
+    }
+    const weeks = [...volumes.keys()].sort((a, b) => a - b), out = [];
+    const d = new Date(weeks[0]), last = weeks[weeks.length - 1];
+    while (d.getTime() <= last) {
+      const week = d.getTime();
+      out.push({ weekStart: week, volume: volumes.get(week) || 0 });
+      d.setDate(d.getDate() + 7); // Calendar weeks stay at local midnight across DST.
+    }
+    return out;
+  }
+
   return { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
@@ -621,5 +650,5 @@
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,
            MAX_WEIGHT, MAX_REPS,
            DEFAULT_PLATES, DEFAULT_BAR, platesPerSide, nearestLoadable, createPlatePref, createBarbellPref,
-           exerciseKey, e1rm, warmupSets };
+           exerciseKey, e1rm, warmupSets, sessionVolume, weekStart, weeklyVolume };
 });
