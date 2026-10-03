@@ -121,5 +121,35 @@ console.log('persistence, export, restore');
   ok(legacyMd.startsWith('## 2026-10-01 — Pull (lbs)'), 'legacy sessions export exactly as before');
 }
 
+console.log('rosterSeedFor: one seeding rule for the workout screen and History (review of batch C)');
+{
+  const s = M.createStore(memStorage()).load();
+  const fin = (split, variant, date, names) => {
+    const x = s.startSession(split, variant); x.date = date;
+    names.forEach(n => s.logSet(x, n, 50, 10)); s.finishSession(x); return x;
+  };
+  const r = M.createRoster(memStorage());
+  const FALLBACK = ['Seed Press'];
+  ok('rosterSeedFor' in M, 'model exports rosterSeedFor');
+  const seed = (...a) => JSON.stringify(M.rosterSeedFor ? M.rosterSeedFor(...a) : null);
+
+  ok(seed(s, r, 'push', 'A', FALLBACK) === '["Seed Press"]', 'no history, no roster -> the fallback list');
+  fin('push', undefined, 1000, ['Bench Press', 'Dips']);
+  fin('push', 'B', 2000, ['Machine Press']);
+  ok(seed(s, r, 'push', 'A', FALLBACK) === '["Bench Press","Dips"]',
+     'no A history, no plain roster: legacy (Bench, Dips) beats the newer B session (Machine Press)');
+  ok(seed(s, r, 'push', 'B', FALLBACK) === '["Machine Press"]', 'same-variant history comes first');
+
+  r.init('push', ['Bench Press', 'Cable Fly']);
+  ok(seed(s, r, 'push', 'A', FALLBACK) === '["Bench Press","Cable Fly"]', 'curated plain roster beats legacy history');
+  r.remove('push', 'Bench Press'); r.remove('push', 'Cable Fly');
+  ok(seed(s, r, 'push', 'A', FALLBACK) === '[]', 'a curated roster emptied on purpose stays empty (it exists, it is just [])');
+
+  const s2 = M.createStore(memStorage()).load();
+  const onlyB = s2.startSession('pull', 'B'); onlyB.date = 5; s2.logSet(onlyB, 'Row', 50, 10); s2.finishSession(onlyB);
+  ok(seed(s2, M.createRoster(memStorage()), 'pull', 'A', FALLBACK) === '["Row"]', 'no same-variant, roster or legacy: any session of the split');
+  ok(seed(s, r, 'push', undefined, FALLBACK) === '["Machine Press"]', 'no variant: the latest session of the split, as before');
+}
+
 console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + `  (${pass} passed, ${fail} failed)`);
 process.exit(fail === 0 ? 0 : 1);
