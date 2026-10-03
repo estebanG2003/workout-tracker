@@ -516,6 +516,142 @@
     return existing.concat(imported.filter(s => !seen.has(s.id)));
   }
 
+  /* CSV exports can quote delimiters and newlines. Detect the delimiter only
+     outside quotes in the header, then read the file one character at a time. */
+  function parseCSV(text) {
+    text = String(text).replace(/^\uFEFF/, '');
+    const counts = { ',': 0, ';': 0, '\t': 0 };
+    let quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (c === '"') {
+        if (quoted && text[i + 1] === '"') i++;
+        else quoted = !quoted;
+      } else if (!quoted) {
+        if (c === '\r' || c === '\n') break;
+        if (c in counts) counts[c]++;
+      }
+    }
+    const delimiter = Object.keys(counts).reduce((best, c) => counts[c] > counts[best] ? c : best, ',');
+    const rows = [];
+    let row = [], field = '', rowStart = 0;
+    quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (quoted) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i++; }
+          else quoted = false;
+        } else field += c;
+      } else if (c === '"' && field === '') {
+        quoted = true;
+      } else if (c === delimiter) {
+        row.push(field); field = '';
+      } else if (c === '\r' || c === '\n') {
+        row.push(field); rows.push(row);
+        row = []; field = '';
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        rowStart = i + 1;
+      } else field += c;
+    }
+    if (quoted) throw new Error('Invalid CSV: unterminated quoted field.');
+    if (rowStart < text.length) { row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  function guessSplit(title) {
+    const names = String(title).toLowerCase();
+    const matches = [];
+    if (/\bpush\b/.test(names)) matches.push('push');
+    if (/\bpull\b/.test(names)) matches.push('pull');
+    if (/\blegs?\b/.test(names)) matches.push('legs');
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  /* Export timestamps describe local clock time. Explicit parsing avoids
+     locale-dependent Date.parse and rejects calendar overflow (e.g. 31 Feb). */
+  function csvStartTime(text) {
+    let y, m, d, h, min, sec;
+    let parts = text.trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (parts) {
+      [, y, m, d, h, min, sec] = parts;
+    } else {
+      parts = text.trim().match(/^(\d{1,2})\s+([a-z]{3})\s+(\d{4}),\s*(\d{1,2}):(\d{2})(?::(\d{2}))?$/i);
+      if (!parts) return null;
+      [, d, m, y, h, min, sec] = parts;
+      m = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+        .indexOf(m.toLowerCase()) + 1;
+    }
+    [y, m, d, h, min, sec] = [y, m, d, h, min, sec || 0].map(Number);
+    if (m < 1 || m > 12 || d < 1 || d > 31 || h > 23 || min > 59 || sec > 59) return null;
+    const date = new Date(y, m - 1, d, h, min);
+    // The numeric Date constructor treats years 0–99 as 1900–1999.
+    if (y < 100) date.setFullYear(y, m - 1, d);
+    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+    return date.getTime();
+  }
+
+  function importWorkoutCSV(text, opts = {}) {
+    const rows = parseCSV(text);
+    const header = (rows.shift() || []).map(c => c.trim().toLowerCase());
+    const has = names => names.every(name => header.includes(name));
+    const hevyWeight = header.findIndex(c => ['weight_kg', 'weight_lbs', 'weight_lb'].includes(c));
+    const strongWeight = header.findIndex(c => c.startsWith('weight'));
+    let format, titleCol, dateCol, exerciseCol, repsCol, weightCol, sourceUnit;
+    if (has(['title', 'start_time', 'exercise_title', 'set_type', 'reps']) && hevyWeight >= 0) {
+      format = 'hevy';
+      titleCol = header.indexOf('title'); dateCol = header.indexOf('start_time');
+      exerciseCol = header.indexOf('exercise_title'); repsCol = header.indexOf('reps');
+      weightCol = hevyWeight; sourceUnit = header[weightCol] === 'weight_kg' ? 'kg' : 'lbs';
+    } else if (has(['date', 'exercise name', 'reps']) && strongWeight >= 0) {
+      format = 'strong';
+      titleCol = header.indexOf('workout name'); dateCol = header.indexOf('date');
+      exerciseCol = header.indexOf('exercise name'); repsCol = header.indexOf('reps');
+      weightCol = strongWeight;
+      sourceUnit = /\(kg\)$/.test(header[weightCol]) ? 'kg'
+        : /\(lbs?\)$/.test(header[weightCol]) ? 'lbs' : opts.unit === 'kg' ? 'kg' : 'lbs';
+    } else {
+      throw new Error('Unrecognized CSV layout. Please export a workout CSV from Hevy or Strong.');
+    }
+
+    const workouts = new Map();
+    for (const row of rows) {
+      if (row.every(c => !c.trim())) continue;
+      const title = row[titleCol] || '', start = row[dateCol] || '';
+      const key = JSON.stringify([title, start]);
+      if (!workouts.has(key)) workouts.set(key, { title, start, rows: [] });
+      workouts.get(key).rows.push(row);
+    }
+    const sessions = [];
+    let unmatched = 0, skippedSets = 0;
+    for (const workout of workouts.values()) {
+      const split = guessSplit(workout.title) || (SPLITS.includes(opts.fallbackSplit) ? opts.fallbackSplit : null);
+      if (!split) { unmatched++; continue; }
+      const date = csvStartTime(workout.start);
+      if (date === null) { skippedSets += workout.rows.length; continue; }
+      const entries = new Map();
+      for (const row of workout.rows) {
+        const exercise = row[exerciseCol] || '';
+        if (exercise.trim() && !entries.has(exercise)) entries.set(exercise, { exercise, sets: [] });
+        const reps = Number(row[repsCol]);
+        const weight = Number(row[weightCol] || '');
+        const warmup = format === 'hevy' && (row[header.indexOf('set_type')] || '').trim().toLowerCase() === 'warmup';
+        if (warmup || !exercise.trim() || !Number.isFinite(reps) || reps <= 0 || !Number.isFinite(weight)) {
+          skippedSets++; continue;
+        }
+        entries.get(exercise).sets.push({ weight: toCanonicalWeight(weight, sourceUnit), reps });
+      }
+      const validEntries = [...entries.values()].filter(entry => entry.sets.length);
+      if (validEntries.length) {
+        // Encode the exact source values so different titles cannot share a
+        // slug, and choosing a fallback split does not change the identity.
+        const id = `${format}-${encodeURIComponent(workout.start)}-${encodeURIComponent(workout.title)}`;
+        sessions.push({ id, date, split, entries: validEntries });
+      }
+    }
+    return { format, sessions, unmatched, skippedSets };
+  }
+
   /* ---- Color helpers for the custom (RGB) theme presets ----
      Reused verbatim from the Grocery List app's model.js — same theme
      system (settings sheet, swatches, HSV picker), same math. */
@@ -783,6 +919,7 @@
            LBS_PER_KG, sortSessionsDesc,
            formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
            exportReminderDue, toJSON, fromJSON, mergeSessions,
+           parseCSV, guessSplit, importWorkoutCSV,
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,
            MAX_WEIGHT, MAX_REPS,
            DEFAULT_PLATES, DEFAULT_BAR, platesPerSide, nearestLoadable, createPlatePref, createBarbellPref,
