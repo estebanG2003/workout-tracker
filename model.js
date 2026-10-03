@@ -650,6 +650,24 @@
     return counts;
   }
 
+  function plateMilestones(lbs) { return [135, 225, 315, 405].filter(w => lbs >= w).length; }
+
+  function bigThreeTotal(sessions, isBarbell) {
+    const out = { squat: null, bench: null, deadlift: null, total: null };
+    for (const session of sessions) {
+      for (const entry of session.entries) {
+        const key = exerciseKey(entry.exercise);
+        const lift = key === 'bench press' ? 'bench' : key;
+        if (!['squat', 'bench press', 'deadlift'].includes(key) || !isBarbell(entry.exercise)) continue;
+        for (const set of entry.sets) {
+          if (out[lift] === null || set.weight > out[lift]) out[lift] = set.weight;
+        }
+      }
+    }
+    if ([out.squat, out.bench, out.deadlift].every(w => w !== null)) out.total = out.squat + out.bench + out.deadlift;
+    return out;
+  }
+
   return { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
@@ -659,5 +677,6 @@
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,
            MAX_WEIGHT, MAX_REPS,
            DEFAULT_PLATES, DEFAULT_BAR, platesPerSide, nearestLoadable, createPlatePref, createBarbellPref,
-           exerciseKey, e1rm, warmupSets, sessionVolume, weekStart, weeklyVolume, activityByDay };
+           exerciseKey, e1rm, warmupSets, sessionVolume, weekStart, weeklyVolume, activityByDay,
+           plateMilestones, bigThreeTotal };
 });
