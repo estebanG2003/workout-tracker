@@ -597,6 +597,21 @@
     return Math.round((reps === 1 ? weight : weight * (1 + reps / 30)) * 10) / 10;
   }
 
+  function warmupSets(working, opts) {
+    if (!Number.isFinite(working) || working <= 0) return [];
+    const out = [], barbell = opts.bar != null;
+    if (barbell && opts.bar < working) out.push({ weight: opts.bar, reps: 10 });
+    if (!barbell && (!Number.isFinite(opts.step) || opts.step <= 0)) return [];
+    const candidates = barbell ? [[0.4, 5], [0.6, 3], [0.8, 2]] : [[0.5, 8], [0.75, 4]];
+    for (const [ratio, reps] of candidates) {
+      const weight = barbell ? nearestLoadable(working * ratio, opts.bar, opts.plates).below
+        : Math.floor(working * ratio / opts.step) * opts.step;
+      const previous = out.length ? out[out.length - 1].weight : (barbell ? opts.bar : 0);
+      if (weight != null && weight > previous && weight < working) out.push({ weight, reps });
+    }
+    return out;
+  }
+
   return { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
@@ -606,5 +621,5 @@
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,
            MAX_WEIGHT, MAX_REPS,
            DEFAULT_PLATES, DEFAULT_BAR, platesPerSide, nearestLoadable, createPlatePref, createBarbellPref,
-           exerciseKey, e1rm };
+           exerciseKey, e1rm, warmupSets };
 });
