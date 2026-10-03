@@ -1289,6 +1289,21 @@
   };
 
   /* ---------- Backup (JSON export/import) ---------- */
+  function saveImportedSessions(imported) {
+    const previous = store.sessions;
+    store.sessions = mergeSessions(previous, imported);
+    try { store.save(); }
+    catch {
+      store.sessions = previous;
+      // Rendering also persists the active workout, which may fail when
+      // storage is full. Still report the failed import after rolling back.
+      try { render(); } catch {}
+      window.alert('Import failed: device storage could not save the sessions. History is unchanged.');
+      return false;
+    }
+    return true;
+  }
+
   document.getElementById('exportJsonBtn').onclick = () => {
     download(`workout-backup-${localDateStr(Date.now())}.json`, toJSON(store.sessions));
   };
@@ -1304,8 +1319,7 @@
       try { imported = fromJSON(reader.result); }
       catch { window.alert('That file doesn\'t look like a valid workout backup.'); return; }
       const before = store.sessions.length;
-      store.sessions = mergeSessions(store.sessions, imported);
-      store.save();
+      if (!saveImportedSessions(imported)) return;
       const added = store.sessions.length - before;
       settingsEl.hidden = true;
       render();
@@ -1326,20 +1340,30 @@
     const reader = new FileReader();
     reader.onload = () => {
       let imported;
+      let importUnit = unit;
       try {
-        imported = importWorkoutCSV(reader.result, { unit });
+        imported = importWorkoutCSV(reader.result, { unit: importUnit });
+        if (!imported.unitFromHeader) {
+          const answer = window.prompt("This file doesn't say which unit its weights are in. Type kg or lbs.");
+          const chosenUnit = (answer || '').trim().toLowerCase();
+          if (!['kg', 'lbs', 'lb'].includes(chosenUnit)) {
+            window.alert('Import cancelled.'); return;
+          }
+          importUnit = chosenUnit === 'lb' ? 'lbs' : chosenUnit;
+          imported = importWorkoutCSV(reader.result, { unit: importUnit });
+        }
         if (imported.unmatched > 0) {
           const count = imported.unmatched;
           const answer = window.prompt(`${count} workout${count === 1 ? " doesn't" : "s don't"} say push, pull or legs in its name. Import as which split? (push / pull / legs, or leave blank to skip)`);
+          if (answer === null) { window.alert('Import cancelled.'); return; }
           const fallbackSplit = (answer || '').trim().toLowerCase();
           if (SPLITS.includes(fallbackSplit)) {
-            imported = importWorkoutCSV(reader.result, { unit, fallbackSplit });
+            imported = importWorkoutCSV(reader.result, { unit: importUnit, fallbackSplit });
           }
         }
       } catch (err) { window.alert(err.message); return; }
       const before = store.sessions.length;
-      store.sessions = mergeSessions(store.sessions, imported.sessions);
-      store.save();
+      if (!saveImportedSessions(imported.sessions)) return;
       const added = store.sessions.length - before;
       settingsEl.hidden = true;
       render();

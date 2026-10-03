@@ -531,8 +531,7 @@
 
   /* CSV exports can quote delimiters and newlines. Detect the delimiter only
      outside quotes in the header, then read the file one character at a time. */
-  function parseCSV(text) {
-    text = String(text).replace(/^\uFEFF/, '');
+  function csvDelimiter(text) {
     const counts = { ',': 0, ';': 0, '\t': 0 };
     let quoted = false;
     for (let i = 0; i < text.length; i++) {
@@ -545,10 +544,15 @@
         if (c in counts) counts[c]++;
       }
     }
-    const delimiter = Object.keys(counts).reduce((best, c) => counts[c] > counts[best] ? c : best, ',');
+    return Object.keys(counts).reduce((best, c) => counts[c] > counts[best] ? c : best, ',');
+  }
+
+  function parseCSV(text) {
+    text = String(text).replace(/^\uFEFF/, '');
+    const delimiter = csvDelimiter(text);
     const rows = [];
     let row = [], field = '', rowStart = 0;
-    quoted = false;
+    let quoted = false;
     for (let i = 0; i < text.length; i++) {
       const c = text[i];
       if (quoted) {
@@ -606,21 +610,25 @@
 
   function importWorkoutCSV(text, opts = {}) {
     const rows = parseCSV(text);
+    const decimalComma = csvDelimiter(String(text)) !== ',';
+    const number = value => Number(decimalComma ? String(value ?? '').replace(',', '.') : value);
     const header = (rows.shift() || []).map(c => c.trim().toLowerCase());
     const has = names => names.every(name => header.includes(name));
     const hevyWeight = header.findIndex(c => ['weight_kg', 'weight_lbs', 'weight_lb'].includes(c));
     const strongWeight = header.findIndex(c => c.startsWith('weight'));
-    let format, titleCol, dateCol, exerciseCol, repsCol, weightCol, sourceUnit;
+    let format, titleCol, dateCol, exerciseCol, repsCol, weightCol, sourceUnit, unitFromHeader;
     if (has(['title', 'start_time', 'exercise_title', 'set_type', 'reps']) && hevyWeight >= 0) {
       format = 'hevy';
       titleCol = header.indexOf('title'); dateCol = header.indexOf('start_time');
       exerciseCol = header.indexOf('exercise_title'); repsCol = header.indexOf('reps');
       weightCol = hevyWeight; sourceUnit = header[weightCol] === 'weight_kg' ? 'kg' : 'lbs';
+      unitFromHeader = true;
     } else if (has(['date', 'exercise name', 'reps']) && strongWeight >= 0) {
       format = 'strong';
       titleCol = header.indexOf('workout name'); dateCol = header.indexOf('date');
       exerciseCol = header.indexOf('exercise name'); repsCol = header.indexOf('reps');
       weightCol = strongWeight;
+      unitFromHeader = /\((kg|lbs?)\)$/.test(header[weightCol]);
       sourceUnit = /\(kg\)$/.test(header[weightCol]) ? 'kg'
         : /\(lbs?\)$/.test(header[weightCol]) ? 'lbs' : opts.unit === 'kg' ? 'kg' : 'lbs';
     } else {
@@ -646,23 +654,24 @@
       for (const row of workout.rows) {
         const exercise = row[exerciseCol] || '';
         if (exercise.trim() && !entries.has(exercise)) entries.set(exercise, { exercise, sets: [] });
-        const reps = Number(row[repsCol]);
-        const weight = Number(row[weightCol] || '');
+        const rawReps = number(row[repsCol]);
+        const reps = Math.min(MAX_REPS, Math.max(0, Math.round(rawReps)));
+        const weight = number(row[weightCol] || '');
         const warmup = format === 'hevy' && (row[header.indexOf('set_type')] || '').trim().toLowerCase() === 'warmup';
-        if (warmup || !exercise.trim() || !Number.isFinite(reps) || reps <= 0 || !Number.isFinite(weight)) {
+        if (warmup || !exercise.trim() || !Number.isFinite(rawReps) || reps <= 0 || !Number.isFinite(weight) || weight < 0) {
           skippedSets++; continue;
         }
-        entries.get(exercise).sets.push({ weight: toCanonicalWeight(weight, sourceUnit), reps });
+        entries.get(exercise).sets.push({ weight: Math.min(MAX_WEIGHT, toCanonicalWeight(weight, sourceUnit)), reps });
       }
       const validEntries = [...entries.values()].filter(entry => entry.sets.length);
       if (validEntries.length) {
-        // Encode the exact source values so different titles cannot share a
-        // slug, and choosing a fallback split does not change the identity.
-        const id = `${format}-${encodeURIComponent(workout.start)}-${encodeURIComponent(workout.title)}`;
+        // A source-app rename or a different fallback split is still the same
+        // workout. Preserve the full start time, including any seconds.
+        const id = `${format}-${encodeURIComponent(workout.start)}`;
         sessions.push({ id, date, split, entries: validEntries });
       }
     }
-    return { format, sessions, unmatched, skippedSets };
+    return { format, sessions, unmatched, skippedSets, unitFromHeader };
   }
 
   /* ---- Color helpers for the custom (RGB) theme presets ----
