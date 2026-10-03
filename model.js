@@ -531,6 +531,7 @@
   }
 
   function nearestLoadable(total, bar, plates) {
+    if (!Number.isFinite(total)) return { below: null, above: null };
     const base = Math.round(bar * 100), raw = total * 100 - base;
     const target = Math.abs(raw - Math.round(raw)) < 1e-8 ? Math.round(raw) : raw;
     if (total <= bar) return { below: total < bar ? null : bar, above: bar };
@@ -594,7 +595,8 @@
 
   function e1rm(weight, reps) {
     if (!Number.isFinite(weight) || !Number.isFinite(reps) || weight <= 0 || reps < 1 || reps > 20) return null;
-    return Math.round((reps === 1 ? weight : weight * (1 + reps / 30)) * 10) / 10;
+    // Decimal half steps can land just below .5 in binary floating point.
+    return Math.round((reps === 1 ? weight : weight * (1 + reps / 30)) * 10 + 1e-9) / 10;
   }
 
   function warmupSets(working, opts) {
@@ -612,9 +614,12 @@
     return out;
   }
 
+  // Restored backups may contain entries without a valid sets array.
+  function entrySets(entry) { return Array.isArray(entry.sets) ? entry.sets : []; }
+
   function sessionVolume(session) {
     return session.entries.reduce((sum, entry) =>
-      sum + entry.sets.reduce((n, set) => n + set.weight * set.reps, 0), 0);
+      sum + entrySets(entry).reduce((n, set) => n + set.weight * set.reps, 0), 0);
   }
 
   function weekStart(ts) {
@@ -636,7 +641,8 @@
     while (d.getTime() <= last) {
       const week = d.getTime();
       out.push({ weekStart: week, volume: volumes.get(week) || 0 });
-      d.setDate(d.getDate() + 7); // Calendar weeks stay at local midnight across DST.
+      // Recompute midnight so a DST gap's shifted hour cannot carry forward.
+      d.setTime(weekStart(d.setDate(d.getDate() + 7)));
     }
     return out;
   }
@@ -659,7 +665,7 @@
         const key = exerciseKey(entry.exercise);
         const lift = key === 'bench press' ? 'bench' : key;
         if (!['squat', 'bench press', 'deadlift'].includes(key) || !isBarbell(entry.exercise)) continue;
-        for (const set of entry.sets) {
+        for (const set of entrySets(entry)) {
           if (out[lift] === null || set.weight > out[lift]) out[lift] = set.weight;
         }
       }
@@ -673,7 +679,7 @@
     for (const session of sessions.slice().sort((a, b) => a.date - b.date)) {
       const entries = session.entries.filter(entry => exerciseKey(entry.exercise) === key);
       if (!entries.length) continue;
-      const sets = entries.flatMap(entry => entry.sets);
+      const sets = entries.flatMap(entrySets);
       let bestE1rm = null, topWeight = 0, bestReps = 0;
       for (const set of sets) {
         const estimate = e1rm(set.weight, set.reps);
