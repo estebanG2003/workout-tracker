@@ -641,6 +641,15 @@
     return out;
   }
 
+  function activityByDay(sessions) {
+    const counts = {};
+    for (const session of sessions) {
+      const day = localDateStr(session.date);
+      counts[day] = (counts[day] || 0) + 1;
+    }
+    return counts;
+  }
+
   return { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
@@ -650,5 +659,5 @@
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,
            MAX_WEIGHT, MAX_REPS,
            DEFAULT_PLATES, DEFAULT_BAR, platesPerSide, nearestLoadable, createPlatePref, createBarbellPref,
-           exerciseKey, e1rm, warmupSets, sessionVolume, weekStart, weeklyVolume };
+           exerciseKey, e1rm, warmupSets, sessionVolume, weekStart, weeklyVolume, activityByDay };
 });
