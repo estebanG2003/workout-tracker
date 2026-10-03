@@ -138,6 +138,7 @@
     .set-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 2px; }
     .set-row { display: flex; align-items: center; gap: 10px; }
     .set-txt { flex: 1 1 auto; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .pr-badge { color: var(--accent); background: var(--accent-dim); padding: 2px 6px; border-radius: 6px; font-size: 11px; font-weight: 700; }
     /* 40px+ tap targets, not 28px — these sit right next to a destructive
        delete action, and mid-set fingers are not precise. */
     .set-icon-btn {
@@ -447,6 +448,7 @@
   const { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster, createUnitPref,
           createActiveSession, resumeOrFinish,
           createBarbellPref, createPlatePref, platesPerSide, nearestLoadable, warmupSets,
+          isNewPR,
           toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
           sortSessionsDesc, formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
           exportReminderDue, toJSON, fromJSON, mergeSessions,
@@ -663,7 +665,7 @@
      is the current editingSet object if it belongs to this exercise, else
      null — used to swap that one row into an inline edit form. `flashIndex`
      (active-session logging only) briefly flashes the just-logged row. */
-  function setRowsHtml(sets, editing, flashIndex) {
+  function setRowsHtml(sets, editing, flashIndex, name) {
     return sets.map((set, i) => {
       if (editing && editing.index === i) {
         return `<div class="set-row editing" data-i="${i}">
@@ -675,8 +677,11 @@
         </div>`;
       }
       const flashCls = flashIndex === i ? ' just-logged' : '';
+      const pr = name && isNewPR([...store.sessions, { date: activeSession.date,
+        entries: [{ exercise: name, sets: sets.slice(0, i) }] }], name, set);
       return `<div class="set-row${flashCls}" data-i="${i}">
         <span class="set-txt">${dispW(set.weight)}×${set.reps}</span>
+        ${pr ? '<span class="pr-badge">PR</span>' : ''}
         <button class="set-icon-btn" data-edit-set="${i}" aria-label="edit set">✎</button>
         <button class="set-icon-btn danger" data-del-set="${i}" aria-label="delete set">✕</button>
       </div>`;
@@ -780,7 +785,7 @@
       body.innerHTML = `
         <div class="ref-last">Last time<span class="ref-val">${lastSets.length ? fmtSetsU(lastSets) : 'No previous data'}</span></div>
         <button class="edit-toggle barbell-toggle${barbell ? ' on' : ''}" data-barbell-toggle aria-pressed="${barbell}">Barbell</button>
-        ${todaySets.length ? `<div class="ex-ref">Today</div><div class="set-list" data-set-list>${setRowsHtml(todaySets, editingHere, flashHere ? todaySets.length - 1 : null)}</div>` : ''}
+        ${todaySets.length ? `<div class="ex-ref">Today</div><div class="set-list" data-set-list>${setRowsHtml(todaySets, editingHere, flashHere ? todaySets.length - 1 : null, name)}</div>` : ''}
         <div class="ctrl-row${weightIrrelevant() ? ' muted-row' : ''}" id="weightRow">
           <div class="nudge-btns">
             <button data-wadj="-10">−10</button>
