@@ -486,7 +486,7 @@
           isNewPR, sessionVolume,
           activityByDay, weekStart, weeklyVolume, plateMilestones, bigThreeTotal,
           exerciseKey, exerciseHistory, repPRs,
-          toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
+          toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit, LBS_PER_KG,
           sortSessionsDesc, formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
           exportReminderDue, toJSON, fromJSON, mergeSessions,
           hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv } = WorkoutModel;
@@ -504,6 +504,7 @@
      these wrappers convert only at the display / input boundary. */
   let unit = unitPref.get();
   const dispW = lbs => toDisplayWeight(lbs, unit);      // canonical lbs -> display value
+  const dispE1rm = lbs => unit === 'kg' ? Math.round(lbs / LBS_PER_KG * 10) / 10 : lbs;
   const toCanon = val => toCanonicalWeight(val, unit);  // display value -> canonical lbs
   const fmtSetsU = sets => formatSetsInUnit(sets, unit);
 
@@ -922,7 +923,8 @@
     const cells = [];
     for (let i = 0; i < 112; i++) {
       const date = localDateStr(day.getTime()), count = counts[date] || 0;
-      cells.push(`<div class="hm-cell${count ? ' on' : ''}" data-date="${date}" data-count="${count}" title="${date}: ${count} workouts" aria-label="${date}: ${count} workouts"></div>`);
+      const label = `${date}: ${count} workout${count === 1 ? '' : 's'}`;
+      cells.push(`<div class="hm-cell${count ? ' on' : ''}" data-date="${date}" data-count="${count}" title="${label}" aria-label="${label}"></div>`);
       day.setDate(day.getDate() + 1);
     }
     const weeks = weeklyVolume(sessions).slice(-12);
@@ -958,7 +960,7 @@
           <text class="chart-tick" x="304" y="137" text-anchor="end">${escapeHtml(formatDate(weeks[weeks.length - 1].weekStart))}</text>
         </svg>` : '<p class="set-hint">No workouts logged yet.</p>'}
       </section>
-      ${barbellLifts.length ? `<section class="progress-section milestones"><h2>Milestones</h2>${milestones}${total !== null ? `<p>Total: ${Math.round(dispW(total)).toLocaleString('en-US')} ${unit}</p>` : ''}</section>` : ''}
+      ${milestones || total !== null ? `<section class="progress-section milestones"><h2>Milestones</h2>${milestones}${total !== null ? `<p>Total: ${Math.round(dispW(total)).toLocaleString('en-US')} ${unit}</p>` : ''}</section>` : ''}
       <div class="prog-ex-list">${[...names].map(([key, name]) => `<button class="prog-ex" data-key="${escapeHtml(key)}">${escapeHtml(name)}</button>`).join('')}</div>`;
     screenEl.querySelectorAll('.prog-ex').forEach(b => {
       b.onclick = () => { progressExercise = names.get(b.dataset.key); view = 'progress-ex'; render(); };
@@ -969,7 +971,7 @@
     const history = exerciseHistory(store.sessions, progressExercise);
     const weighted = history.some(row => row.bestE1rm !== null);
     const rows = history.filter(row => !weighted || row.bestE1rm !== null);
-    const values = rows.map(row => weighted ? dispW(row.bestE1rm) : row.bestReps);
+    const values = rows.map(row => weighted ? dispE1rm(row.bestE1rm) : row.bestReps);
     const min = Math.min(...values), max = Math.max(...values);
     const first = rows.length ? rows[0].date : 0, last = rows.length ? rows[rows.length - 1].date : 0;
     const points = rows.map((row, i) => ({
@@ -993,9 +995,9 @@
       </section>
       ${weighted ? `<p class="pr-e1rm">Best est. 1RM: ${max} ${unit}</p>` : ''}
       <section class="progress-section"><h2>Rep PRs</h2>
-        <table class="pr-table"><thead><tr><th scope="col">Reps</th><th scope="col">Weight (${unit})</th><th scope="col">Date</th></tr></thead>
+        ${prs.length ? `<table class="pr-table"><thead><tr><th scope="col">Reps</th><th scope="col">Weight (${unit})</th><th scope="col">Date</th></tr></thead>
           <tbody>${prs.map(([reps, pr]) => `<tr data-reps="${reps}"><td>${reps}</td><td>${dispW(pr.weight)} ${unit}</td><td>${escapeHtml(formatDate(pr.date))}</td></tr>`).join('')}</tbody>
-        </table>${prs.length ? '' : '<p class="set-hint">No weighted rep PRs yet.</p>'}
+        </table>` : '<p class="set-hint">No weighted rep PRs yet.</p>'}
       </section>`;
   }
 
