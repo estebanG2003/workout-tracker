@@ -14,7 +14,17 @@ A small, personal, mobile-first push/pull/legs workout tracker PWA. No framework
 - **Finish Workout** saves the session. **History** shows every past session, expandable to the full set-by-set detail — the same data "Last time" reads from. Logged sets can be edited or deleted from both the active session and History.
 - **Export** (top of History) downloads a `workout-export-YYYY-MM-DD.md` file — ready-to-paste markdown, one `## date — Split` block per session with exercises as bullets. Only exports sessions logged since your last export (tracked separately from the sessions themselves), so repeated exports never duplicate — paste-append the file's contents into whatever notes app or log you're keeping. Says "No new sessions to export" if you export twice with nothing new in between.
 
-## Deliberately out of scope (v1)
+### Added in v2
+
+- **Barbell lifts** — mark an exercise as *Barbell* and it shows the plates to load per side for the weight you're entering (`Per side: 45 + 10`), or the nearest loadable weights if that number can't be built. Bar weight and plate sizes are set in Settings, per unit. Off by default, since most machine and dumbbell work has no plates.
+- **Warm-up sets** — a suggested ramp for the weight you're about to lift (bar, 40/60/80% for barbell lifts; 50/75% otherwise), rounded down to something you can actually load.
+- **PRs** — a logged set that beats every earlier estimated 1-rep max (Epley) for that exercise gets a **PR** badge.
+- **Progress** (from Home) — a 16-week activity heatmap, weekly volume, plate milestones and a big-three total for barbell lifts, and a per-exercise chart of estimated 1RM (best reps for bodyweight work) with a rep-range PR table. Exercise names that differ only in capitalisation are counted together.
+- **Volume** — total weight × reps on every History card.
+- **A/B days** — opt-in per split in Settings. Push A and Push B get their own buttons, exercise lists and "Last time"; sessions logged before A/B was turned on stay valid and act as the fallback.
+- **Import from Hevy or Strong** — reads their CSV exports in Settings. Workouts whose name doesn't say push, pull or legs get a split you choose (or are skipped); re-importing the same file adds nothing twice.
+
+## Deliberately out of scope
 
 - No *automatic* integration with any notes app — export is a manual download-then-paste step, by design (kept the app standalone, no external write access).
 - No rest timers, RPE/RIR, or auto progression suggestions.
@@ -33,17 +43,20 @@ Then open `http://localhost:8731`. A service worker + `localhost` secure context
 ## Tests
 
 ```bash
-node test-model.js
+node test-model.js && node test-analytics.js && node test-variants.js && node test-import.js
+node run-ui-tests.js
 ```
 
-Deterministic, dependency-free tests for the data model (146 checks: set logging, the "last time" plan/actual lookup including within-session progression, the persistent per-split roster (seed/add/remove/reorder), kg↔lbs conversion and round-trip stability, custom exercises, persistence, markdown export formatting, the export-tracker's "only what's new" logic, the reused color-theme math).
+All dependency-free. The `test-*.js` files test `model.js` under Node:
 
-**UI integration test** (`test-ui.html`, 107 checks) drives the real app through real DOM events — start a workout, expand an exercise, nudge *and manually type* weight/reps, log sets, verify the persistent roster (skip-for-today returns next session; reorder and permanent removal persist), toggle kg/lbs and confirm weights convert, add an exercise, finish, verify history, export (intercepted via a `window.__exportHook` test seam instead of triggering a real download) and confirm a second export with nothing new correctly no-ops, edit/delete logged sets, and exercise the settings sheet (theme color + dark mode). Run it by serving the folder and opening `test-ui.html` in a browser, or headless:
+| File | Covers |
+|---|---|
+| `test-model.js` | set logging, "last time", the per-split roster, kg↔lbs round-trips, persistence, markdown export, backup/restore, the version lockstep |
+| `test-analytics.js` | plate math and inventory, est. 1RM, warm-ups, volume, activity, milestones, exercise history and rep PRs |
+| `test-variants.js` | A/B days: variant rosters, the same-variant → legacy → any fallback, export and restore |
+| `test-import.js` | CSV parsing and the Hevy / Strong importers |
 
-```bash
-# with the static server running on :8731
-chrome --headless=new --dump-dom http://localhost:8731/test-ui.html
-```
+`run-ui-tests.js` serves the folder and runs every `test-ui*.html` page in headless Chrome (or Edge), each in a fresh profile, driving the real app through real DOM events. It exits non-zero on any failure. Set `CHROME=<path>` if neither browser is in its default location.
 
 ## Releasing
 
@@ -78,8 +91,10 @@ are never at risk from this.
 | `sw.js` | Service worker (offline + installable) |
 | `manifest.webmanifest` | PWA manifest |
 | `icons/` | App icons + `make_icons.py` to regenerate them |
-| `test-model.js` | Node tests for `model.js` |
-| `test-ui.html` | Headless-Chrome-drivable end-to-end UI test |
+| `test-*.js` | Node tests for `model.js` (see Tests) |
+| `test-ui*.html` | End-to-end UI test pages, run by `run-ui-tests.js` |
+| `run-ui-tests.js` | Headless runner for the UI test pages |
+| `docs/feature-harvest.md` | The v2 feature list, harvested from other open-source lifting apps |
 
 ## Design spec
 
