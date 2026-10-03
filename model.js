@@ -26,7 +26,6 @@
   const VERSION = '1.1.0';
 
   const SPLITS = ['push', 'pull', 'legs'];
-  const VARIANTS = ['A', 'B'];
   /* Sanity clamps, not realism limits — a guard against a runaway nudge/stepper
      tap-storm or bad input, not a claim about what's humanly liftable. */
   const MAX_WEIGHT = 2000;
@@ -49,64 +48,6 @@
     if (!SPLITS.includes(split)) throw new Error('invalid split: ' + split);
   }
 
-  function assertVariant(variant) {
-    if (variant !== undefined && !VARIANTS.includes(variant)) {
-      throw new Error('invalid variant: ' + variant);
-    }
-  }
-
-  function rosterKey(split, variant) {
-    assertSplit(split);
-    assertVariant(variant);
-    return variant === undefined ? split : `${split}:${variant}`;
-  }
-
-  function assertRosterKey(key) {
-    const parts = typeof key === 'string' ? key.split(':') : [];
-    if (parts.length > 2 || rosterKey(parts[0], parts[1]) !== key) {
-      throw new Error('invalid roster key: ' + key);
-    }
-  }
-
-  function splitLabel(split, variant) {
-    // Display restored history without requiring this version to know its labels.
-    const name = typeof split === 'string' ? split : '';
-    const label = name.charAt(0).toUpperCase() + name.slice(1);
-    return VARIANTS.includes(variant) ? `${label} ${variant}` : label;
-  }
-
-  /* Narrow eligible history before choosing the latest, so legacy history
-     beats a newer other-variant workout. No variant keeps the old lookup. */
-  function preferVariant(sessions, variant) {
-    assertVariant(variant);
-    if (variant === undefined) return sessions;
-    const same = sessions.filter(s => s.variant === variant);
-    if (same.length) return same;
-    const legacy = sessions.filter(s => s.variant === undefined);
-    return legacy.length ? legacy : sessions;
-  }
-
-  function createVariantPref(storage) {
-    const VKEY = 'workout-variants-v1';
-    const data = { push: false, pull: false, legs: false };
-    try {
-      const parsed = JSON.parse(storage.getItem(VKEY));
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
-          Object.entries(parsed).every(([split, enabled]) =>
-            SPLITS.includes(split) && typeof enabled === 'boolean')) {
-        Object.assign(data, parsed);
-      }
-    } catch {}
-    return {
-      enabled(split) { assertSplit(split); return data[split]; },
-      set(split, enabled) {
-        assertSplit(split);
-        data[split] = Boolean(enabled);
-        storage.setItem(VKEY, JSON.stringify(data));
-      },
-    };
-  }
-
   /* createStore(storage): storage is any {getItem, setItem} (localStorage in
      the browser, an in-memory shim in tests). Kept injectable so the model is
      testable without a DOM. Holds only FINISHED sessions; the in-progress
@@ -123,27 +64,25 @@
       },
       save() { storage.setItem(KEY, JSON.stringify(this.sessions)); return this; },
 
-      startSession(split, variant) {
+      startSession(split) {
         assertSplit(split);
-        assertVariant(variant);
-        const session = { id: uid(), date: Date.now(), split, entries: [] };
-        if (variant !== undefined) session.variant = variant;
-        return session;
+        return { id: uid(), date: Date.now(), split, entries: [] };
       },
 
       /* Most recent FINISHED session (from `this.sessions`) that logged
          `exercise`, excluding a session id (the in-progress one, which
          isn't in `this.sessions` yet anyway — belt-and-suspenders). */
-      lastSessionFor(exercise, excludeId, variant) {
+      lastSessionFor(exercise, excludeId) {
         const matches = this.sessions
           .filter(s => s.id !== excludeId)
-          .filter(s => s.entries.some(en => en.exercise === exercise));
-        return preferVariant(matches, variant).sort((a, b) => b.date - a.date)[0] || null;
+          .filter(s => s.entries.some(en => en.exercise === exercise))
+          .sort((a, b) => b.date - a.date);
+        return matches[0] || null;
       },
 
       /* Sets logged for `exercise` in the most recent past session that has it. */
-      lastSetsFor(exercise, excludeId, variant) {
-        const s = this.lastSessionFor(exercise, excludeId, variant);
+      lastSetsFor(exercise, excludeId) {
+        const s = this.lastSessionFor(exercise, excludeId);
         if (!s) return [];
         const entry = s.entries.find(en => en.exercise === exercise);
         return entry ? entry.sets : [];
@@ -158,7 +97,7 @@
           const last = entry.sets[entry.sets.length - 1];
           return { weight: last.weight, reps: last.reps };
         }
-        const prevSets = this.lastSetsFor(exercise, session.id, session.variant);
+        const prevSets = this.lastSetsFor(exercise, session.id);
         if (prevSets.length) return { weight: prevSets[0].weight, reps: prevSets[0].reps };
         return { weight: 0, reps: 0 };
       },
@@ -222,8 +161,9 @@
          sorts LAST in `this.sessions`, since that array is always appended
          in true chronological order: `>=` keeps replacing "latest so far"
          through a tie instead of stopping at the first match. */
-      lastSessionForSplit(split, variant) {
-        return preferVariant(this.sessions.filter(s => s.split === split), variant)
+      lastSessionForSplit(split) {
+        return this.sessions
+          .filter(s => s.split === split)
           .reduce((latest, s) => (!latest || s.date >= latest.date ? s : latest), null);
       },
 
@@ -346,13 +286,12 @@
   function resumeOrFinish(saved, now) {
     if (!saved || typeof saved !== 'object') return 'drop';
     if (!SPLITS.includes(saved.split) || !Array.isArray(saved.entries)) return 'drop';
-    if (saved.variant !== undefined && !VARIANTS.includes(saved.variant)) return 'drop';
     if (typeof saved.date !== 'number') return 'drop';
     if (localDateStr(saved.date) === localDateStr(now)) return 'resume';
     return saved.entries.some(e => e && e.sets && e.sets.length) ? 'finish' : 'drop';
   }
 
-  /* ---- Roster: the persistent, ordered, per-split/variant exercise list ----
+  /* ---- Roster: the persistent, ordered, per-split exercise list ----
      This is the SOURCE OF TRUTH for which exercises show up in a session and
      in what order — deliberately independent of what actually got logged, so
      an exercise you skip (log nothing for) still appears next time with its
@@ -372,13 +311,13 @@
     const idx = (split, name) =>
       data[split].findIndex(e => e.toLowerCase() === String(name).toLowerCase());
     return {
-      has(split) { assertRosterKey(split); return Array.isArray(data[split]); },
-      get(split) { assertRosterKey(split); return Array.isArray(data[split]) ? data[split].slice() : []; },
+      has(split) { assertSplit(split); return Array.isArray(data[split]); },
+      get(split) { assertSplit(split); return Array.isArray(data[split]) ? data[split].slice() : []; },
       /* Idempotent: seeds the split's list from `names` (deduped, trimmed,
          case-insensitive) only if it hasn't been initialized yet. Returns the
          current list either way. */
       init(split, names) {
-        assertRosterKey(split);
+        assertSplit(split);
         if (Array.isArray(data[split])) return this.get(split);
         const seen = new Set(); const out = [];
         (names || []).forEach(n => {
@@ -389,7 +328,7 @@
         return out.slice();
       },
       add(split, name) {
-        assertRosterKey(split);
+        assertSplit(split);
         const nm = norm(name);
         if (!nm) return null;
         if (!Array.isArray(data[split])) data[split] = [];
@@ -398,7 +337,7 @@
         return nm;
       },
       remove(split, name) {
-        assertRosterKey(split);
+        assertSplit(split);
         if (!Array.isArray(data[split])) return false;
         const before = data[split].length;
         data[split] = data[split].filter(e => e.toLowerCase() !== String(name).toLowerCase());
@@ -410,7 +349,7 @@
          earlier, dir > 0 = down/later). Returns false at the list edges or if
          the name isn't present. */
       move(split, name, dir) {
-        assertRosterKey(split);
+        assertSplit(split);
         if (!Array.isArray(data[split])) return false;
         const i = idx(split, name);
         if (i < 0) return false;
@@ -422,19 +361,6 @@
         return true;
       },
     };
-  }
-
-  /* Read-only seed for both workout initialization and History's picker.
-     The store prefers same-variant, then legacy, then any session. Insert
-     the curated plain roster after same-variant history, even if it is empty. */
-  function rosterSeedFor(store, roster, split, variant, fallbackList) {
-    assertSplit(split);
-    assertVariant(variant);
-    const last = store.lastSessionForSplit(split, variant);
-    if (variant !== undefined && (!last || last.variant !== variant) && roster.has(split)) {
-      return roster.get(split);
-    }
-    return last ? last.entries.map(e => e.exercise) : fallbackList.slice();
   }
 
   function sortSessionsDesc(sessions) {
@@ -472,7 +398,7 @@
     const u = unit === 'kg' ? 'kg' : 'lbs';
     const sorted = sessions.slice().sort((a, b) => a.date - b.date);
     return sorted.map(s => {
-      const label = splitLabel(s.split, s.variant);
+      const label = s.split.charAt(0).toUpperCase() + s.split.slice(1);
       const lines = s.entries.map(e => `- ${e.exercise}: ${formatSetsInUnit(e.sets, u)}`);
       return `## ${localDateStr(s.date)} — ${label} (${UNIT_LABEL[u]})\n${lines.join('\n')}`;
     }).join('\n\n') + (sorted.length ? '\n' : '');
@@ -509,8 +435,7 @@
 
   function isSessionShaped(s) {
     return s && typeof s === 'object' && typeof s.id === 'string' &&
-      typeof s.date === 'number' && typeof s.split === 'string' && Array.isArray(s.entries) &&
-      (s.variant === undefined || VARIANTS.includes(s.variant));
+      typeof s.date === 'number' && typeof s.split === 'string' && Array.isArray(s.entries);
   }
 
   function fromJSON(text) {
@@ -934,8 +859,7 @@
     return prior.length > 0 && estimate > Math.max(...prior);
   }
 
-  return { VERSION, SPLITS, VARIANTS, splitLabel, rosterKey, rosterSeedFor, createVariantPref,
-           SEED_EXERCISES, createStore, createExercises, createRoster,
+  return { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
            LBS_PER_KG, sortSessionsDesc,

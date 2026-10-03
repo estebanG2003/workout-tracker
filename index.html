@@ -351,8 +351,6 @@
     .set-hint { font-size: 12.5px; color: var(--text-dim); margin: 8px 2px 0; line-height: 1.35; }
     .plate-fields label { display: block; font-size: 13px; color: var(--text-dim); margin: 10px 0 4px; }
     .settings-in { width: 100%; min-height: 44px; padding: 10px 12px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
-    .variant-options label { display: flex; align-items: center; gap: 12px; min-height: 44px; cursor: pointer; }
-    .variant-options input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent); }
   </style>
 </head>
 <body>
@@ -400,12 +398,6 @@
           <button data-u="kg">kg</button>
         </div>
         <p class="set-hint">Switches every weight in the app instantly. Your data is stored the same way either way, so nothing gets lost — you can flip back and forth freely.</p>
-      </div>
-
-      <div class="set-section">
-        <label>A/B days</label>
-        <div class="variant-options" id="variantOptions"></div>
-        <p class="set-hint">Show separate A and B workouts for each enabled split, with their own exercise lists and last-time numbers.</p>
       </div>
 
       <div class="set-section">
@@ -490,8 +482,7 @@
   })();
 
   /* View layer. Core data model lives in model.js (shared with tests). */
-  const { VERSION, SPLITS, VARIANTS, splitLabel, rosterKey, rosterSeedFor, createVariantPref,
-          SEED_EXERCISES, createStore, createExercises, createRoster, createUnitPref,
+  const { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster, createUnitPref,
           createActiveSession, resumeOrFinish,
           createBarbellPref, createPlatePref, platesPerSide, nearestLoadable, warmupSets,
           isNewPR, sessionVolume,
@@ -504,7 +495,6 @@
   const store = createStore(localStorage);
   const exercises = createExercises(localStorage);      // legacy seed source (no-history splits)
   const roster = createRoster(localStorage);            // persistent per-split exercise list
-  const variantPref = createVariantPref(localStorage);
   const unitPref = createUnitPref(localStorage);
   const exportTracker = createExportTracker(localStorage);
   const activeStore = createActiveSession(localStorage); // crash/forgot-to-Finish safety net
@@ -521,6 +511,7 @@
   const toCanon = val => toCanonicalWeight(val, unit);  // display value -> canonical lbs
   const fmtSetsU = sets => formatSetsInUnit(sets, unit);
 
+  const SPLIT_LABEL = { push: 'Push', pull: 'Pull', legs: 'Legs' };
   const SPLIT_EMOJI = { push: '💪', pull: '🏋️', legs: '🦵' };
 
   /* ---------- Settings: theme color + light/dark (reused pattern from Grocery List) ---------- */
@@ -618,7 +609,7 @@
     backBtn.hidden = view === 'home';
     finishBtn.hidden = view !== 'active';
     if (view === 'home') { titleEl.textContent = 'Workout'; renderHome(); }
-    else if (view === 'active') { titleEl.textContent = splitLabel(activeSession.split, activeSession.variant); renderActive(); }
+    else if (view === 'active') { titleEl.textContent = SPLIT_LABEL[activeSession.split]; renderActive(); }
     else if (view === 'history') { titleEl.textContent = 'History'; renderHistory(); }
     else if (view === 'progress') { titleEl.textContent = 'Progress'; renderProgress(); }
     else if (view === 'progress-ex') { titleEl.textContent = progressExercise; renderProgressExercise(); }
@@ -629,16 +620,14 @@
       <div class="home">
         <p class="home-sub">Start a workout</p>
         <div class="split-grid">
-          ${SPLITS.map(s => (variantPref.enabled(s) ? VARIANTS : [undefined]).map(variant =>
-            `<button class="split-btn" data-split="${s}"${variant === undefined ? '' : ` data-variant="${variant}"`}><span class="emoji">${SPLIT_EMOJI[s]}</span><span>${splitLabel(s, variant)}</span></button>`
-          ).join('')).join('')}
+          ${SPLITS.map(s => `<button class="split-btn" data-split="${s}"><span class="emoji">${SPLIT_EMOJI[s]}</span><span>${SPLIT_LABEL[s]}</span></button>`).join('')}
         </div>
         <button class="history-link" id="historyLink">View history</button>
         <button class="history-link" id="progressLink">View progress</button>
       </div>`;
     screenEl.querySelectorAll('.split-btn').forEach(b => {
       b.onclick = () => {
-        activeSession = store.startSession(b.dataset.split, b.dataset.variant);
+        activeSession = store.startSession(b.dataset.split);
         expandedExercise = null; draft = {}; editingSet = null;
         hiddenToday = new Set(); editingList = false;
         view = 'active'; render();
@@ -653,13 +642,15 @@
 
   function renderActive() {
     const split = activeSession.split;
-    const key = rosterKey(split, activeSession.variant);
-    /* Initialize once using the model's shared seeding rule. Existing rosters
-       remain user-owned, including lists deliberately emptied by the user. */
-    if (!roster.has(key)) {
-      roster.init(key, rosterSeedFor(store, roster, split, activeSession.variant, exercises.forSplit(split)));
-    }
-    const full = roster.get(key);
+    /* The persistent roster is the source of truth for what shows up and in
+       what order. Seed it once (idempotent) from the last finished session of
+       this split — or the seeded/custom list if there's no history yet — so
+       the very first render after this feature looks exactly like before. */
+    const lastSplitSession = store.lastSessionForSplit(split);
+    const seed = lastSplitSession ? lastSplitSession.entries.map(e => e.exercise)
+                                  : exercises.forSplit(split);
+    roster.init(split, seed);
+    const full = roster.get(split);
     /* Edit mode shows the whole roster (so any exercise can be reordered/
        removed); normal mode hides today's skipped ones. */
     const list = editingList ? full : full.filter(n => !hiddenToday.has(n));
@@ -680,7 +671,7 @@
       document.getElementById('addExerciseBtn').onclick = () => {
         const name = window.prompt('Exercise name:');
         if (name === null) return;
-        const added = roster.add(key, name);
+        const added = roster.add(split, name);
         if (added) { hiddenToday.delete(added); expandedExercise = added; render(); }
       };
     }
@@ -774,10 +765,9 @@
   function renderExerciseRow(name, index, count) {
     const entry = activeSession.entries.find(e => e.exercise === name);
     const todaySets = entry ? entry.sets : [];
-    const lastSets = store.lastSetsFor(name, activeSession.id, activeSession.variant);
+    const lastSets = store.lastSetsFor(name, activeSession.id);
     const li = document.createElement('li');
-    const label = splitLabel(activeSession.split, activeSession.variant);
-    const key = rosterKey(activeSession.split, activeSession.variant);
+    const label = SPLIT_LABEL[activeSession.split];
 
     /* Edit-list mode: no logging, just reorder (↑/↓) and permanent remove from
        the roster. Removing here drops the exercise from FUTURE sessions of this
@@ -793,12 +783,12 @@
           <button class="set-icon-btn" data-move="1"${index === count - 1 ? ' disabled' : ''} aria-label="move down">↓</button>
           <button class="set-icon-btn danger" data-remove-ex aria-label="remove exercise from list">🗑</button>
         </span>`;
-      const mv = dir => () => { if (roster.move(key, name, dir)) render(); };
+      const mv = dir => () => { if (roster.move(activeSession.split, name, dir)) render(); };
       head.querySelector('[data-move="-1"]').onclick = mv(-1);
       head.querySelector('[data-move="1"]').onclick = mv(1);
       head.querySelector('[data-remove-ex]').onclick = () => {
         if (!window.confirm(`Remove "${name}" from your ${label} list? It won't appear in future ${label} workouts unless you add it back. Past logged sets are kept in history.`)) return;
-        roster.remove(key, name);
+        roster.remove(activeSession.split, name);
         hiddenToday.delete(name);
         render();
       };
@@ -1061,7 +1051,7 @@
     const totalSets = s.entries.reduce((n, e) => n + e.sets.length, 0);
     const head = document.createElement('div');
     head.className = 'session-head';
-    head.innerHTML = `<span class="session-split">${SPLIT_EMOJI[s.split]} ${splitLabel(s.split, s.variant)}</span>
+    head.innerHTML = `<span class="session-split">${SPLIT_EMOJI[s.split]} ${SPLIT_LABEL[s.split]}</span>
       <span class="session-meta"><span class="session-date">${formatDate(s.date)}</span><span class="session-date">${totalSets} set${totalSets === 1 ? '' : 's'}</span><span class="session-volume">${dispTotal(sessionVolume(s)).toLocaleString('en-US')} ${unit}</span></span>`;
     head.onclick = () => {
       expandedHistoryId = expandedHistoryId === s.id ? null : s.id;
@@ -1113,16 +1103,13 @@
       }
 
       if (isEditing) {
-        /* Pick from this split/variant's roster so a re-added exercise matches the name
+        /* Pick from this split's roster so a re-added exercise matches the name
            already in history (a typo would fork "Last time" into two lines);
            "Other…" falls back to a free-text prompt for a one-off. */
         const addEx = document.createElement('select');
         addEx.className = 'sd-add-ex';
         addEx.add(new Option('+ Add exercise…', ''));
-        const key = rosterKey(s.split, s.variant);
-        const names = roster.has(key) ? roster.get(key)
-          : rosterSeedFor(store, roster, s.split, s.variant, exercises.forSplit(s.split));
-        (names.length ? names : exercises.forSplit(s.split))
+        (roster.get(s.split).length ? roster.get(s.split) : exercises.forSplit(s.split))
           .forEach(n => addEx.add(new Option(n, n)));
         addEx.add(new Option('Other…', '__other'));
         addEx.onchange = () => {
@@ -1167,15 +1154,6 @@
 
   /* ---------- Settings sheet wiring (reused pattern from Grocery List) ---------- */
   const settingsEl = document.getElementById('settings');
-  const variantOptionsEl = document.getElementById('variantOptions');
-  variantOptionsEl.innerHTML = SPLITS.map(split =>
-    `<label><input type="checkbox" data-variant-split="${split}"><span>${splitLabel(split)} A/B</span></label>`
-  ).join('');
-  const variantInputs = variantOptionsEl.querySelectorAll('input[data-variant-split]');
-  variantInputs.forEach(cb => {
-    cb.checked = variantPref.enabled(cb.dataset.variantSplit);
-    cb.onchange = () => { variantPref.set(cb.dataset.variantSplit, cb.checked); render(); };
-  });
   const appearanceEl = document.getElementById('appearance');
   const unitSegEl = document.getElementById('unitSeg');
   const swatchesEl = document.getElementById('swatches');
@@ -1194,7 +1172,6 @@
   }
 
   function paintSettings() {
-    variantInputs.forEach(cb => { cb.checked = variantPref.enabled(cb.dataset.variantSplit); });
     [...appearanceEl.children].forEach(b => b.classList.toggle('on', b.dataset.v === settings.appearance));
     [...unitSegEl.children].forEach(b => b.classList.toggle('on', b.dataset.u === unit));
     const presets = allPresets();

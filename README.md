@@ -21,7 +21,6 @@ A small, personal, mobile-first push/pull/legs workout tracker PWA. No framework
 - **PRs** — a logged set that beats every earlier estimated 1-rep max (Epley) for that exercise gets a **PR** badge.
 - **Progress** (from Home) — a 16-week activity heatmap, weekly volume, plate milestones and a big-three total for barbell lifts, and a per-exercise chart of estimated 1RM (best reps for bodyweight work) with a rep-range PR table. Exercise names that differ only in capitalisation are counted together.
 - **Volume** — total weight × reps on every History card.
-- **A/B days** — opt-in per split in Settings. Push A and Push B get their own buttons, exercise lists and "Last time"; sessions logged before A/B was turned on stay valid and act as the fallback.
 - **Import from Hevy or Strong** — reads their CSV exports in Settings. Workouts whose name doesn't say push, pull or legs get a split you choose (or are skipped); re-importing the same file adds nothing twice.
 
 ## Deliberately out of scope
@@ -43,7 +42,7 @@ Then open `http://localhost:8731`. A service worker + `localhost` secure context
 ## Tests
 
 ```bash
-node test-model.js && node test-analytics.js && node test-variants.js && node test-import.js
+node test-model.js && node test-analytics.js && node test-import.js
 node run-ui-tests.js
 ```
 
@@ -53,7 +52,6 @@ All dependency-free. The `test-*.js` files test `model.js` under Node:
 |---|---|
 | `test-model.js` | set logging, "last time", the per-split roster, kg↔lbs round-trips, persistence, markdown export, backup/restore, the version lockstep |
 | `test-analytics.js` | plate math and inventory, est. 1RM, warm-ups, volume, activity, milestones, exercise history and rep PRs |
-| `test-variants.js` | A/B days: variant rosters, the same-variant → legacy → any fallback, export and restore |
 | `test-import.js` | CSV parsing and the Hevy / Strong importers |
 
 `run-ui-tests.js` serves the folder and runs every `test-ui*.html` page in headless Chrome (or Edge), each in a fresh profile, driving the real app through real DOM events. It exits non-zero on any failure. Set `CHROME=<path>` if neither browser is in its default location.
