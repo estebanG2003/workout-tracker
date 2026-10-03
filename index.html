@@ -277,11 +277,19 @@
     .heatmap { display: grid; grid-template-rows: repeat(7, 1fr); grid-auto-flow: column; grid-template-columns: repeat(16, 1fr); gap: 3px; }
     .hm-cell { aspect-ratio: 1; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--border); }
     .hm-cell.on { background: var(--accent); border-color: var(--accent); }
-    .weekly-volume { display: block; width: 100%; height: auto; }
-    .wv-bar { fill: var(--accent); }
+    .weekly-volume, .e1rm-chart { display: block; width: 100%; height: auto; }
+    .wv-bar, .pt { fill: var(--accent); }
+    .e1rm-chart polyline { fill: none; stroke: var(--accent); stroke-width: 2; }
     .chart-axis { stroke: var(--border); stroke-width: 1; }
     .chart-tick { fill: var(--text-dim); font-size: 11px; }
     .milestone { font-size: 14px; margin: 6px 0; }
+    .prog-ex-list { display: flex; flex-direction: column; gap: 8px; }
+    .prog-ex { text-align: left; padding: 14px 16px; min-height: 44px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 15px; font-weight: 600; cursor: pointer; overflow-wrap: anywhere; }
+    .prog-ex:active { background: var(--surface-2); }
+    .chart-label, .pr-e1rm { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+    .pr-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+    .pr-table th, .pr-table td { padding: 10px 4px; border-bottom: 1px solid var(--border); text-align: left; }
+    .pr-table th { color: var(--text-dim); }
 
     /* ---------- Settings sheet (reused pattern from Grocery List) ---------- */
     .overlay { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.4); display: flex; align-items: flex-end; justify-content: center; }
@@ -464,7 +472,7 @@
           createBarbellPref, createPlatePref, platesPerSide, nearestLoadable, warmupSets,
           isNewPR, sessionVolume,
           activityByDay, weekStart, weeklyVolume, plateMilestones, bigThreeTotal,
-          exerciseKey, exerciseHistory,
+          exerciseKey, exerciseHistory, repPRs,
           toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
           sortSessionsDesc, formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
           exportReminderDue, toJSON, fromJSON, mergeSessions,
@@ -531,7 +539,8 @@
   applySettings();
 
   /* ---------- App state ---------- */
-  let view = 'home';           // 'home' | 'active' | 'history' | 'progress'
+  let view = 'home';           // 'home' | 'active' | 'history' | 'progress' | 'progress-ex'
+  let progressExercise = null; // display name selected in Progress
   let activeSession = null;    // in-progress session object (not yet saved)
   let expandedExercise = null; // name of exercise expanded in the active view
   let draft = {};              // { [exercise]: { weight, reps } } — pending values before Log Set
@@ -586,6 +595,7 @@
     else if (view === 'active') { titleEl.textContent = SPLIT_LABEL[activeSession.split]; renderActive(); }
     else if (view === 'history') { titleEl.textContent = 'History'; renderHistory(); }
     else if (view === 'progress') { titleEl.textContent = 'Progress'; renderProgress(); }
+    else if (view === 'progress-ex') { titleEl.textContent = progressExercise; renderProgressExercise(); }
   }
 
   function renderHome() {
@@ -935,7 +945,45 @@
           <text class="chart-tick" x="304" y="137" text-anchor="end">${escapeHtml(formatDate(weeks[weeks.length - 1].weekStart))}</text>
         </svg>` : '<p class="set-hint">No workouts logged yet.</p>'}
       </section>
-      ${barbellLifts.length ? `<section class="progress-section milestones"><h2>Milestones</h2>${milestones}${total !== null ? `<div class="milestone">Total: ${Math.round(dispW(total)).toLocaleString('en-US')} ${unit}</div>` : ''}</section>` : ''}`;
+      ${barbellLifts.length ? `<section class="progress-section milestones"><h2>Milestones</h2>${milestones}${total !== null ? `<p>Total: ${Math.round(dispW(total)).toLocaleString('en-US')} ${unit}</p>` : ''}</section>` : ''}
+      <div class="prog-ex-list">${[...names].map(([key, name]) => `<button class="prog-ex" data-key="${escapeHtml(key)}">${escapeHtml(name)}</button>`).join('')}</div>`;
+    screenEl.querySelectorAll('.prog-ex').forEach(b => {
+      b.onclick = () => { progressExercise = names.get(b.dataset.key); view = 'progress-ex'; render(); };
+    });
+  }
+
+  function renderProgressExercise() {
+    const history = exerciseHistory(store.sessions, progressExercise);
+    const weighted = history.some(row => row.bestE1rm !== null);
+    const rows = history.filter(row => !weighted || row.bestE1rm !== null);
+    const values = rows.map(row => weighted ? dispW(row.bestE1rm) : row.bestReps);
+    const min = Math.min(...values), max = Math.max(...values);
+    const first = rows.length ? rows[0].date : 0, last = rows.length ? rows[rows.length - 1].date : 0;
+    const points = rows.map((row, i) => ({
+      x: last === first ? 170 : 40 + (row.date - first) / (last - first) * 260,
+      y: max === min ? 72 : 120 - (values[i] - min) / (max - min) * 96,
+      label: `${formatDate(row.date)}: ${values[i]} ${weighted ? unit : 'reps'}`,
+    }));
+    const label = weighted ? `Est. 1RM (${unit})` : 'Best reps';
+    const prs = Object.entries(repPRs(store.sessions, progressExercise)).sort((a, b) => +a[0] - +b[0]);
+    screenEl.innerHTML = `
+      <section class="progress-section"><p class="chart-label">${label}</p>
+        ${points.length ? `<svg class="e1rm-chart" viewBox="0 0 320 150" role="img" aria-label="${label} over time">
+          <line class="chart-axis" x1="40" y1="120" x2="300" y2="120"/>
+          <text class="chart-tick" x="0" y="28">${max}</text>
+          <text class="chart-tick" x="0" y="120">${min}</text>
+          <polyline points="${points.map(p => `${p.x},${p.y}`).join(' ')}"/>
+          ${points.map(p => `<circle class="pt" cx="${p.x}" cy="${p.y}" r="3"><title>${escapeHtml(p.label)}</title></circle>`).join('')}
+          <text class="chart-tick" x="40" y="143">${escapeHtml(formatDate(first))}</text>
+          <text class="chart-tick" x="300" y="143" text-anchor="end">${escapeHtml(formatDate(last))}</text>
+        </svg>` : '<p class="set-hint">No sets logged yet.</p>'}
+      </section>
+      ${weighted ? `<p class="pr-e1rm">Best est. 1RM: ${max} ${unit}</p>` : ''}
+      <section class="progress-section"><h2>Rep PRs</h2>
+        <table class="pr-table"><thead><tr><th scope="col">Reps</th><th scope="col">Weight (${unit})</th><th scope="col">Date</th></tr></thead>
+          <tbody>${prs.map(([reps, pr]) => `<tr data-reps="${reps}"><td>${reps}</td><td>${dispW(pr.weight)} ${unit}</td><td>${escapeHtml(formatDate(pr.date))}</td></tr>`).join('')}</tbody>
+        </table>${prs.length ? '' : '<p class="set-hint">No weighted rep PRs yet.</p>'}
+      </section>`;
   }
 
   function renderHistory() {
@@ -1078,7 +1126,7 @@
       activeSession = null;
     }
     editingSet = null;
-    view = 'home'; render();
+    view = view === 'progress-ex' ? 'progress' : 'home'; render();
   };
   finishBtn.onclick = () => {
     if (store.totalSets(activeSession) === 0 && !window.confirm('Finish with no sets logged?')) return;
