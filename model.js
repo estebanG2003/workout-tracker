@@ -592,6 +592,11 @@
 
   function exerciseKey(name) { return String(name).trim().toLowerCase().replace(/\s+/g, ' '); }
 
+  function e1rm(weight, reps) {
+    if (!Number.isFinite(weight) || !Number.isFinite(reps) || weight <= 0 || reps < 1 || reps > 20) return null;
+    return Math.round((reps === 1 ? weight : weight * (1 + reps / 30)) * 10) / 10;
+  }
+
   return { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
@@ -600,5 +605,6 @@
            exportReminderDue, toJSON, fromJSON, mergeSessions,
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,
            MAX_WEIGHT, MAX_REPS,
-           DEFAULT_PLATES, DEFAULT_BAR, platesPerSide, nearestLoadable, createPlatePref, createBarbellPref };
+           DEFAULT_PLATES, DEFAULT_BAR, platesPerSide, nearestLoadable, createPlatePref, createBarbellPref,
+           exerciseKey, e1rm };
 });
