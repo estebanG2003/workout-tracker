@@ -22,6 +22,9 @@ localStorage.setItem('workout-app-v1', JSON.stringify([
   { id: 'legacy', date: now - 5 * DAY, split: 'push', entries: [
     { exercise: 'Bench Press', sets: [{ weight: 40, reps: 10 }] } ] },
 ]));
+/* The user's curated Push list: Dips was skipped last time, so it is in the
+   roster but not in the last logged session. Turning A/B on must not lose it. */
+localStorage.setItem('workout-roster-v1', JSON.stringify({ push: ['Bench Press', 'Dips'] }));
 
 const iframe = document.createElement('iframe');
 iframe.style.cssText = 'width:390px;height:844px;';
@@ -72,6 +75,7 @@ iframe.addEventListener('load', () => {
       click(splitBtn('push', 'B'));
       ok(title() === 'Push B', 'title is "Push B", got ' + title());
       ok(!!row('Bench Press'), 'Push B roster seeded from legacy push history');
+      ok(!!row('Dips'), 'a new variant list starts from the curated Push list, so an exercise skipped last time (Dips) is not lost');
       ok(txt(row('Bench Press').querySelector('.ex-summary')) === 'Last: 40×10', 'B with no B history reads legacy last time, got ' + txt(row('Bench Press').querySelector('.ex-summary')));
       logOne('Bench Press', 30);
       click(d.getElementById('finishBtn'));

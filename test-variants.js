@@ -39,6 +39,11 @@ console.log('splitLabel + rosterKey');
   ok(M.splitLabel('push') === 'Push' && M.splitLabel('push', 'B') === 'Push B', 'splitLabel with and without a variant');
   ok(M.rosterKey('legs') === 'legs' && M.rosterKey('pull', 'A') === 'pull:A', 'rosterKey: split, or split:variant');
   ok(throws(() => M.rosterKey('push', 'C')) && throws(() => M.rosterKey('cardio', 'A')), 'rosterKey rejects bad split/variant');
+  /* splitLabel is display-only and runs inside History rendering; a restored
+     backup may hold a split or variant this version doesn't know. Throwing
+     there would blank the whole History screen. */
+  ok(!throws(() => M.splitLabel('cardio')) && M.splitLabel('cardio') === 'Cardio', 'splitLabel never throws: unknown split is just capitalised');
+  ok(M.splitLabel('push', 'Z') === 'Push' && M.splitLabel('push', null) === 'Push', 'splitLabel ignores an unknown or null variant');
 }
 
 console.log('startSession with a variant');
