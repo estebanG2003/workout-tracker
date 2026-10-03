@@ -69,10 +69,10 @@
   }
 
   function splitLabel(split, variant) {
-    assertSplit(split);
-    assertVariant(variant);
-    const label = split.charAt(0).toUpperCase() + split.slice(1);
-    return variant === undefined ? label : `${label} ${variant}`;
+    // Display restored history without requiring this version to know its labels.
+    const name = typeof split === 'string' ? split : '';
+    const label = name.charAt(0).toUpperCase() + name.slice(1);
+    return VARIANTS.includes(variant) ? `${label} ${variant}` : label;
   }
 
   /* Narrow eligible history before choosing the latest, so legacy history

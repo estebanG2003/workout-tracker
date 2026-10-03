@@ -651,14 +651,25 @@
   function renderActive() {
     const split = activeSession.split;
     const key = rosterKey(split, activeSession.variant);
-    /* The persistent roster is the source of truth for what shows up and in
-       what order. Seed it once (idempotent) from the last finished session of
-       this split/variant — or the seeded/custom list if there's no history yet — so
-       the very first render after this feature looks exactly like before. */
-    const lastSplitSession = store.lastSessionForSplit(split, activeSession.variant);
-    const seed = lastSplitSession ? lastSplitSession.entries.map(e => e.exercise)
-                                  : exercises.forSplit(split);
-    roster.init(key, seed);
+    /* Seed a new variant from its own history first, then the curated plain
+       roster (including skipped exercises), then any session of the split,
+       then the seed/custom list. Existing rosters stay user-owned. */
+    if (!roster.has(key)) {
+      const variant = activeSession.variant;
+      const lastVariantSession = variant === undefined ? null : store.lastSessionForSplit(split, variant);
+      const plain = variant === undefined ? [] : roster.get(split);
+      let seed;
+      if (lastVariantSession && lastVariantSession.variant === variant) {
+        seed = lastVariantSession.entries.map(e => e.exercise);
+      } else if (plain.length) {
+        seed = plain;
+      } else {
+        const lastSplitSession = store.lastSessionForSplit(split);
+        seed = lastSplitSession ? lastSplitSession.entries.map(e => e.exercise)
+                                : exercises.forSplit(split);
+      }
+      roster.init(key, seed);
+    }
     const full = roster.get(key);
     /* Edit mode shows the whole roster (so any exercise can be reordered/
        removed); normal mode hides today's skipped ones. */
