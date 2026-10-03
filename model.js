@@ -500,6 +500,98 @@
     };
   }
 
+  /* ---- Barbell helpers: numbers stay in the caller's unit. ---- */
+  const DEFAULT_PLATES = { lbs: [45, 35, 25, 10, 5, 2.5], kg: [25, 20, 15, 10, 5, 2.5, 1.25] };
+  const DEFAULT_BAR = { lbs: 45, kg: 20 };
+
+  /* Pair weights in hundredths avoid fractional drift. Reachability lets us
+     backtrack past a heavy plate whose remainder cannot be loaded. */
+  function plateLoads(plates, limit) {
+    const sizes = [...new Set(plates.filter(p => Number.isFinite(p) && p > 0)
+      .map(p => Math.round(p * 100) * 2).filter(p => p > 0))].sort((a, b) => b - a);
+    const loads = new Uint8Array(limit + 1);
+    loads[0] = 1;
+    for (let w = 1; w <= limit; w++) {
+      loads[w] = sizes.some(p => p <= w && loads[w - p]) ? 1 : 0;
+    }
+    return { sizes, loads };
+  }
+
+  function platesPerSide(total, bar, plates) {
+    if (!Number.isFinite(total) || !Number.isFinite(bar) || total < bar) return null;
+    let remaining = Math.round(total * 100) - Math.round(bar * 100);
+    const { sizes, loads } = plateLoads(plates, remaining);
+    if (!loads[remaining]) return null;
+    const out = [];
+    while (remaining > 0) {
+      const p = sizes.find(p => p <= remaining && loads[remaining - p]);
+      out.push(p / 200); remaining -= p;
+    }
+    return out;
+  }
+
+  function nearestLoadable(total, bar, plates) {
+    const base = Math.round(bar * 100), raw = total * 100 - base;
+    const target = Math.abs(raw - Math.round(raw)) < 1e-8 ? Math.round(raw) : raw;
+    if (total <= bar) return { below: total < bar ? null : bar, above: bar };
+    const smallest = Math.min(...plates.filter(p => Number.isFinite(p) && p > 0)
+      .map(p => Math.round(p * 100) * 2).filter(p => p > 0));
+    if (!Number.isFinite(smallest)) return { below: bar, above: null };
+    // Multiples of the smallest pair give a finite upper bound, even for odd inventories.
+    const limit = Math.ceil(target / smallest) * smallest;
+    const { loads } = plateLoads(plates, limit);
+    let below = Math.floor(target), above = Math.ceil(target);
+    while (!loads[below]) below--;
+    while (!loads[above]) above++;
+    return { below: (base + below) / 100, above: (base + above) / 100 };
+  }
+
+  function createPlatePref(storage) {
+    const PKEY = 'workout-plates-v1';
+    let data = {};
+    try {
+      const parsed = JSON.parse(storage.getItem(PKEY));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) data = parsed;
+    } catch {}
+    const validPlates = plates => Array.isArray(plates) && plates.length > 0 &&
+      plates.every(p => Number.isFinite(p) && p > 0);
+    const sorted = plates => [...new Set(plates)].sort((a, b) => b - a);
+    return {
+      get(unit) {
+        const pref = data[unit] || {};
+        return {
+          bar: Number.isFinite(pref.bar) && pref.bar > 0 ? pref.bar : DEFAULT_BAR[unit],
+          plates: validPlates(pref.plates) ? sorted(pref.plates) : DEFAULT_PLATES[unit].slice(),
+        };
+      },
+      set(unit, bar, plates) {
+        if (!['lbs', 'kg'].includes(unit) || !Number.isFinite(bar) || bar <= 0 || !validPlates(plates)) return false;
+        data[unit] = { bar, plates: sorted(plates) };
+        storage.setItem(PKEY, JSON.stringify(data));
+        return true;
+      },
+    };
+  }
+
+  function createBarbellPref(storage) {
+    const BKEY = 'workout-barbell-v1';
+    let names = new Set();
+    try {
+      const parsed = JSON.parse(storage.getItem(BKEY));
+      if (Array.isArray(parsed)) names = new Set(parsed.filter(n => typeof n === 'string').map(exerciseKey));
+    } catch {}
+    return {
+      is(name) { return names.has(exerciseKey(name)); },
+      set(name, enabled) {
+        const key = exerciseKey(name);
+        if (enabled) names.add(key); else names.delete(key);
+        storage.setItem(BKEY, JSON.stringify([...names]));
+      },
+    };
+  }
+
+  function exerciseKey(name) { return String(name).trim().toLowerCase().replace(/\s+/g, ' '); }
+
   return { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
@@ -507,5 +599,6 @@
            formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
            exportReminderDue, toJSON, fromJSON, mergeSessions,
            hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv, KEY, CUSTOM_KEY,
-           MAX_WEIGHT, MAX_REPS };
+           MAX_WEIGHT, MAX_REPS,
+           DEFAULT_PLATES, DEFAULT_BAR, platesPerSide, nearestLoadable, createPlatePref, createBarbellPref };
 });
