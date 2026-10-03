@@ -349,6 +349,8 @@
     .danger-btn { width: 100%; border: 1px solid var(--danger); background: transparent; color: var(--danger); padding: 13px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
     .danger-btn:active { background: var(--danger); color: #fff; }
     .set-hint { font-size: 12.5px; color: var(--text-dim); margin: 8px 2px 0; line-height: 1.35; }
+    .plate-fields label { display: block; font-size: 13px; color: var(--text-dim); margin: 10px 0 4px; }
+    .settings-in { width: 100%; min-height: 44px; padding: 10px 12px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
   </style>
 </head>
 <body>
@@ -396,6 +398,17 @@
           <button data-u="kg">kg</button>
         </div>
         <p class="set-hint">Switches every weight in the app instantly. Your data is stored the same way either way, so nothing gets lost — you can flip back and forth freely.</p>
+      </div>
+
+      <div class="set-section">
+        <label>Plate inventory (<span data-plate-unit>lbs</span>)</label>
+        <div class="plate-fields">
+          <label for="barWeightIn">Bar weight</label>
+          <input class="settings-in" id="barWeightIn" type="number" inputmode="decimal" min="0" step="any">
+          <label for="platesIn">Plate sizes, comma-separated</label>
+          <input class="settings-in" id="platesIn" type="text" inputmode="text">
+        </div>
+        <button class="add-preset-btn" id="savePlatesBtn">Save plate inventory</button>
       </div>
 
       <div class="set-section">
@@ -1149,6 +1162,10 @@
   function paintSettings() {
     [...appearanceEl.children].forEach(b => b.classList.toggle('on', b.dataset.v === settings.appearance));
     [...unitSegEl.children].forEach(b => b.classList.toggle('on', b.dataset.u === unit));
+    const inventory = platePref.get(unit);
+    document.getElementById('barWeightIn').value = inventory.bar;
+    document.getElementById('platesIn').value = inventory.plates.join(', ');
+    settingsEl.querySelector('[data-plate-unit]').textContent = unit;
     const presets = allPresets();
     swatchesEl.innerHTML = '';
     Object.keys(presets).forEach(key => {
@@ -1220,6 +1237,14 @@
       paintSettings(); render();
     };
   });
+  document.getElementById('savePlatesBtn').onclick = () => {
+    const bar = Number(document.getElementById('barWeightIn').value);
+    const plates = document.getElementById('platesIn').value.split(',').map(p => Number(p.trim()));
+    if (!platePref.set(unit, bar, plates)) {
+      window.alert('Enter a bar weight and at least one plate, all positive numbers.'); return;
+    }
+    paintSettings(); render();
+  };
   document.getElementById('settingsBtn').onclick = () => { paintSettings(); settingsEl.hidden = false; };
   document.getElementById('closeSettings').onclick = () => { settingsEl.hidden = true; };
   settingsEl.onclick = (e) => { if (e.target === settingsEl) settingsEl.hidden = true; };
