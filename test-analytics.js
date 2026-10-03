@@ -195,5 +195,25 @@ console.log('items 3 + 6: exerciseHistory, repPRs, isNewPR');
   ok(M.isNewPR(hist, 'Dips', { weight: 0, reps: 20 }) === false, 'bodyweight sets are never e1rm PRs');
 }
 
+console.log('review regressions (Codex review of batch A)');
+{
+  const t0 = Date.now();
+  const r = M.nearestLoadable(NaN, 45, M.DEFAULT_PLATES.lbs);
+  ok(Date.now() - t0 < 500 && eq(r, { below: null, above: null }), 'nearestLoadable(NaN) returns {below:null, above:null} immediately instead of looping');
+  ok(eq(M.nearestLoadable(Infinity, 45, M.DEFAULT_PLATES.lbs), { below: null, above: null }), 'nearestLoadable(Infinity) -> nulls');
+  ok(M.platesPerSide(NaN, 45, M.DEFAULT_PLATES.lbs) === null, 'platesPerSide(NaN) -> null');
+
+  const broken = sess('x', day(2026, 9, 14), 'legs', [{ exercise: 'Squat' }, en('Squat', [100, 5])]);
+  ok(M.sessionVolume(broken) === 500, 'an entry with no sets counts as empty instead of throwing');
+  ok(M.exerciseHistory([broken], 'squat').length === 1 && M.exerciseHistory([broken], 'squat')[0].topWeight === 100, 'exerciseHistory skips a set-less entry');
+  ok(M.bigThreeTotal([broken], () => true).squat === 100, 'bigThreeTotal skips a set-less entry');
+  ok(eq(M.repPRs([broken], 'squat'), { 5: { weight: 100, date: day(2026, 9, 14) } }), 'repPRs skips a set-less entry');
+  ok(M.weeklyVolume([broken])[0].volume === 500, 'weeklyVolume survives a set-less entry');
+
+  ok(M.e1rm(102.1, 15) === 153.2, 'e1rm rounds half up despite float error: 102.1 x 15 = 153.15 -> 153.2');
+  ok(M.isNewPR([sess('p', day(2026, 9, 1), 'push', [en('Bench', [102.1, 15])])], 'bench', { weight: 153.2, reps: 1 }) === false,
+     'equal rounded estimates are not a PR');
+}
+
 console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + `  (${pass} passed, ${fail} failed)`);
 process.exit(fail === 0 ? 0 : 1);
