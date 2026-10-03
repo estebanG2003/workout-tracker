@@ -490,7 +490,7 @@
   })();
 
   /* View layer. Core data model lives in model.js (shared with tests). */
-  const { VERSION, SPLITS, VARIANTS, splitLabel, rosterKey, createVariantPref,
+  const { VERSION, SPLITS, VARIANTS, splitLabel, rosterKey, rosterSeedFor, createVariantPref,
           SEED_EXERCISES, createStore, createExercises, createRoster, createUnitPref,
           createActiveSession, resumeOrFinish,
           createBarbellPref, createPlatePref, platesPerSide, nearestLoadable, warmupSets,
@@ -654,24 +654,10 @@
   function renderActive() {
     const split = activeSession.split;
     const key = rosterKey(split, activeSession.variant);
-    /* Seed a new variant from its own history first, then the curated plain
-       roster (including skipped exercises), then any session of the split,
-       then the seed/custom list. Existing rosters stay user-owned. */
+    /* Initialize once using the model's shared seeding rule. Existing rosters
+       remain user-owned, including lists deliberately emptied by the user. */
     if (!roster.has(key)) {
-      const variant = activeSession.variant;
-      const lastVariantSession = variant === undefined ? null : store.lastSessionForSplit(split, variant);
-      const plain = variant === undefined ? [] : roster.get(split);
-      let seed;
-      if (lastVariantSession && lastVariantSession.variant === variant) {
-        seed = lastVariantSession.entries.map(e => e.exercise);
-      } else if (plain.length) {
-        seed = plain;
-      } else {
-        const lastSplitSession = store.lastSessionForSplit(split);
-        seed = lastSplitSession ? lastSplitSession.entries.map(e => e.exercise)
-                                : exercises.forSplit(split);
-      }
-      roster.init(key, seed);
+      roster.init(key, rosterSeedFor(store, roster, split, activeSession.variant, exercises.forSplit(split)));
     }
     const full = roster.get(key);
     /* Edit mode shows the whole roster (so any exercise can be reordered/
@@ -1133,7 +1119,9 @@
         const addEx = document.createElement('select');
         addEx.className = 'sd-add-ex';
         addEx.add(new Option('+ Add exercise…', ''));
-        const names = roster.get(rosterKey(s.split, s.variant));
+        const key = rosterKey(s.split, s.variant);
+        const names = roster.has(key) ? roster.get(key)
+          : rosterSeedFor(store, roster, s.split, s.variant, exercises.forSplit(s.split));
         (names.length ? names : exercises.forSplit(s.split))
           .forEach(n => addEx.add(new Option(n, n)));
         addEx.add(new Option('Other…', '__other'));

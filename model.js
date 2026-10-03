@@ -424,6 +424,19 @@
     };
   }
 
+  /* Read-only seed for both workout initialization and History's picker.
+     The store prefers same-variant, then legacy, then any session. Insert
+     the curated plain roster after same-variant history, even if it is empty. */
+  function rosterSeedFor(store, roster, split, variant, fallbackList) {
+    assertSplit(split);
+    assertVariant(variant);
+    const last = store.lastSessionForSplit(split, variant);
+    if (variant !== undefined && (!last || last.variant !== variant) && roster.has(split)) {
+      return roster.get(split);
+    }
+    return last ? last.entries.map(e => e.exercise) : fallbackList.slice();
+  }
+
   function sortSessionsDesc(sessions) {
     return sessions.slice().sort((a, b) => b.date - a.date);
   }
@@ -912,7 +925,7 @@
     return prior.length > 0 && estimate > Math.max(...prior);
   }
 
-  return { VERSION, SPLITS, VARIANTS, splitLabel, rosterKey, createVariantPref,
+  return { VERSION, SPLITS, VARIANTS, splitLabel, rosterKey, rosterSeedFor, createVariantPref,
            SEED_EXERCISES, createStore, createExercises, createRoster,
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
