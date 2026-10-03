@@ -668,6 +668,44 @@
     return out;
   }
 
+  function exerciseHistory(sessions, name) {
+    const key = exerciseKey(name), out = [];
+    for (const session of sessions.slice().sort((a, b) => a.date - b.date)) {
+      const entries = session.entries.filter(entry => exerciseKey(entry.exercise) === key);
+      if (!entries.length) continue;
+      const sets = entries.flatMap(entry => entry.sets);
+      let bestE1rm = null, topWeight = 0, bestReps = 0;
+      for (const set of sets) {
+        const estimate = e1rm(set.weight, set.reps);
+        if (estimate !== null && (bestE1rm === null || estimate > bestE1rm)) bestE1rm = estimate;
+        topWeight = Math.max(topWeight, set.weight);
+        bestReps = Math.max(bestReps, set.reps);
+      }
+      out.push({ sessionId: session.id, date: session.date, sets, bestE1rm, topWeight, bestReps,
+        volume: sessionVolume({ entries }) });
+    }
+    return out;
+  }
+
+  function repPRs(sessions, name) {
+    const prs = {};
+    for (const row of exerciseHistory(sessions, name)) {
+      for (const set of row.sets) {
+        if (set.weight > 0 && (!prs[set.reps] || set.weight > prs[set.reps].weight)) {
+          prs[set.reps] = { weight: set.weight, date: row.date };
+        }
+      }
+    }
+    return prs;
+  }
+
+  function isNewPR(sessions, name, set) {
+    const estimate = e1rm(set.weight, set.reps);
+    if (estimate === null) return false;
+    const prior = exerciseHistory(sessions, name).map(row => row.bestE1rm).filter(n => n !== null);
+    return prior.length > 0 && estimate > Math.max(...prior);
+  }
+
   return { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster,
            createActiveSession, resumeOrFinish,
            createUnitPref, toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
@@ -678,5 +716,5 @@
            MAX_WEIGHT, MAX_REPS,
            DEFAULT_PLATES, DEFAULT_BAR, platesPerSide, nearestLoadable, createPlatePref, createBarbellPref,
            exerciseKey, e1rm, warmupSets, sessionVolume, weekStart, weeklyVolume, activityByDay,
-           plateMilestones, bigThreeTotal };
+           plateMilestones, bigThreeTotal, exerciseHistory, repPRs, isNewPR };
 });
