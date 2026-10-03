@@ -1,0 +1,108 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>UI test import</title></head>
+<body data-result="">
+<script>
+/* Import from Hevy / Strong (feature harvest item 11), driven through the real
+   Settings file input. Run via: node run-ui-tests.js */
+const results = [];
+function ok(cond, msg) { results.push({ pass: !!cond, msg }); }
+function finish() {
+  const pass = results.filter(r => r.pass).length;
+  const fail = results.filter(r => !r.pass);
+  document.body.setAttribute('data-result', JSON.stringify({ pass, fail: fail.length, failMsgs: fail.map(f => f.msg) }));
+  document.title = fail.length === 0 ? 'ALL PASS' : 'FAILURES';
+}
+function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+
+const HEVY = [
+  'title,start_time,end_time,description,exercise_title,superset_id,exercise_notes,set_index,set_type,weight_lbs,reps,distance_miles,duration_seconds,rpe',
+  'Push A,"28 Mar 2025, 17:29","28 Mar 2025, 18:45",,Bench Press (Barbell),,,0,normal,185,8,,,8',
+  'Upper B,"30 Mar 2025, 09:00","30 Mar 2025, 10:00",,Row,,,0,normal,135,10,,,',
+].join('\n');
+
+localStorage.clear();
+localStorage.setItem('workout-app-v1', JSON.stringify([
+  { id: 'mine', date: Date.now() - 86400000, split: 'legs', entries: [{ exercise: 'Squat', sets: [{ weight: 100, reps: 5 }] }] },
+]));
+const iframe = document.createElement('iframe');
+iframe.style.cssText = 'width:390px;height:844px;';
+iframe.src = 'index.html';
+document.body.appendChild(iframe);
+
+iframe.addEventListener('load', () => {
+  const w = iframe.contentWindow, d = iframe.contentDocument;
+  w.confirm = () => true;
+  w.alert = (msg) => { w.__lastAlert = msg; };
+  const prompts = [];
+  let promptAnswer = null;
+  w.prompt = (msg) => { prompts.push(msg); return promptAnswer; };
+  /* Same FileReader stub as test-ui.html: Chromium's real file reading does
+     not advance under --virtual-time-budget. */
+  w.FileReader = function () {
+    this.readAsText = (file) => setTimeout(() => {
+      this.result = file.__testText !== undefined ? file.__testText : '';
+      if (this.onload) this.onload();
+    }, 0);
+  };
+  const choose = (text, name) => {
+    click(d.getElementById('settingsBtn'));
+    ok(!!d.getElementById('importCsvBtn'), 'settings has #importCsvBtn');
+    const input = d.getElementById('importCsvInput');
+    ok(!!input && input.type === 'file', 'settings has a file input #importCsvInput');
+    const dt = new w.DataTransfer();
+    const f = new w.File([text], name, { type: 'text/csv' });
+    f.__testText = text;
+    dt.items.add(f);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const stored = () => JSON.parse(w.localStorage.getItem('workout-app-v1'));
+
+  setTimeout(() => {
+    try {
+      // 1. Unmatched workout, user leaves the prompt blank -> skipped
+      promptAnswer = '';
+      choose(HEVY, 'hevy.csv');
+      setTimeout(() => {
+        try {
+          ok(prompts.length === 1 && /push.*pull.*legs/i.test(prompts[0]), 'asks which split for workouts with no push/pull/legs in the name, got: ' + prompts[0]);
+          ok(/1/.test(prompts[0]), 'the question says how many workouts it is about');
+          ok(stored().length === 2, 'blank answer: only the matched workout imported (1 + existing 1), got ' + stored().length);
+          ok(/Imported 1 new session/.test(w.__lastAlert) && /Hevy/.test(w.__lastAlert), 'alert reports count and source, got: ' + w.__lastAlert);
+          ok(/1 .*skipped/i.test(w.__lastAlert), 'alert says 1 workout was skipped, got: ' + w.__lastAlert);
+
+          // 2. Same file again, answering "pull" -> only the previously skipped one is new
+          promptAnswer = 'pull';
+          prompts.length = 0;
+          choose(HEVY, 'hevy.csv');
+          setTimeout(() => {
+            try {
+              const s = stored();
+              ok(s.length === 3, 're-import with a split adds only the new workout (dedup by id), got ' + s.length);
+              ok(s.some(x => x.split === 'pull' && x.entries[0].exercise === 'Row'), 'the unmatched workout landed as pull');
+              ok(/Imported 1 new session/.test(w.__lastAlert), 'alert counts only genuinely new sessions, got: ' + w.__lastAlert);
+
+              // 3. Garbage file -> clear error, nothing stored
+              choose('hello,world\n1,2', 'junk.csv');
+              setTimeout(() => {
+                try {
+                  ok(/hevy/i.test(w.__lastAlert) && /strong/i.test(w.__lastAlert), 'unknown file alerts with the supported apps, got: ' + w.__lastAlert);
+                  ok(stored().length === 3, 'nothing stored from a bad file');
+                  click(d.getElementById('backBtn'));
+                  click(d.getElementById('historyLink'));
+                  ok(d.querySelectorAll('.session-card').length === 3, 'imported sessions show in History');
+                } catch (err) { ok(false, 'EXCEPTION (bad file): ' + err.message); }
+                finish();
+              }, 60);
+            } catch (err) { ok(false, 'EXCEPTION (reimport): ' + err.message); finish(); }
+          }, 60);
+        } catch (err) { ok(false, 'EXCEPTION (first import): ' + err.message); finish(); }
+      }, 60);
+    } catch (err) {
+      ok(false, 'EXCEPTION: ' + err.message);
+      finish();
+    }
+  }, 150);
+});
+</script>
+</body></html>
