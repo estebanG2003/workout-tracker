@@ -514,6 +514,7 @@
      these wrappers convert only at the display / input boundary. */
   let unit = unitPref.get();
   const dispW = lbs => toDisplayWeight(lbs, unit);      // canonical lbs -> display value
+  const dispTotal = lbs => Math.round(unit === 'kg' ? lbs / LBS_PER_KG : lbs);
   const dispE1rm = lbs => unit === 'kg' ? Math.round(lbs / LBS_PER_KG * 10) / 10 : lbs;
   const toCanon = val => toCanonicalWeight(val, unit);  // display value -> canonical lbs
   const fmtSetsU = sets => formatSetsInUnit(sets, unit);
@@ -952,11 +953,11 @@
       day.setDate(day.getDate() + 1);
     }
     const weeks = weeklyVolume(sessions).slice(-12);
-    const maxVolume = Math.max(1, ...weeks.map(w => dispW(w.volume)));
+    const maxVolume = Math.max(1, ...weeks.map(w => dispTotal(w.volume)));
     const width = 268 / Math.max(1, weeks.length);
     const bars = weeks.map((w, i) => {
-      const volume = dispW(w.volume), height = volume / maxVolume * 100;
-      return `<rect class="wv-bar" x="${36 + i * width + 2}" y="${116 - height}" width="${Math.max(1, width - 4)}" height="${height}" rx="2"><title>${localDateStr(w.weekStart)}: ${Math.round(volume).toLocaleString('en-US')} ${unit}</title></rect>`;
+      const volume = dispTotal(w.volume), height = volume / maxVolume * 100;
+      return `<rect class="wv-bar" x="${36 + i * width + 2}" y="${116 - height}" width="${Math.max(1, width - 4)}" height="${height}" rx="2"><title>${localDateStr(w.weekStart)}: ${volume.toLocaleString('en-US')} ${unit}</title></rect>`;
     }).join('');
     const names = new Map();
     for (const session of sortSessionsDesc(sessions)) {
@@ -969,7 +970,7 @@
       exerciseHistory(sessions, name).some(row => row.sets.length));
     const milestones = barbellLifts.map(name => {
       const heaviest = Math.max(...exerciseHistory(sessions, name).map(row => row.topWeight));
-      const plates = plateMilestones(heaviest);
+      const plates = plateMilestones(dispW(heaviest), unit);
       return plates ? `<div class="milestone">${escapeHtml(name)}: ${plates} plate${plates === 1 ? '' : 's'}</div>` : '';
     }).join('');
     const total = bigThreeTotal(sessions, barbellPref.is).total;
@@ -978,13 +979,13 @@
       <section class="progress-section"><h2>Weekly volume (${unit})</h2>
         ${weeks.length ? `<svg class="weekly-volume" viewBox="0 0 320 144" role="img" aria-label="Weekly volume in ${unit}">
           <line class="chart-axis" x1="36" y1="116" x2="304" y2="116"/>
-          <text class="chart-tick" x="0" y="20">${Math.round(maxVolume).toLocaleString('en-US')}</text>
+          <text class="chart-tick" x="0" y="20">${maxVolume.toLocaleString('en-US')}</text>
           <text class="chart-tick" x="22" y="116">0</text>${bars}
           <text class="chart-tick" x="36" y="137">${escapeHtml(formatDate(weeks[0].weekStart))}</text>
           <text class="chart-tick" x="304" y="137" text-anchor="end">${escapeHtml(formatDate(weeks[weeks.length - 1].weekStart))}</text>
         </svg>` : '<p class="set-hint">No workouts logged yet.</p>'}
       </section>
-      ${milestones || total !== null ? `<section class="progress-section milestones"><h2>Milestones</h2>${milestones}${total !== null ? `<p>Total: ${Math.round(dispW(total)).toLocaleString('en-US')} ${unit}</p>` : ''}</section>` : ''}
+      ${milestones || total !== null ? `<section class="progress-section milestones"><h2>Milestones</h2>${milestones}${total !== null ? `<p>Total: ${dispTotal(total).toLocaleString('en-US')} ${unit}</p>` : ''}</section>` : ''}
       <div class="prog-ex-list">${[...names].map(([key, name]) => `<button class="prog-ex" data-key="${escapeHtml(key)}">${escapeHtml(name)}</button>`).join('')}</div>`;
     screenEl.querySelectorAll('.prog-ex').forEach(b => {
       b.onclick = () => { progressExercise = names.get(b.dataset.key); view = 'progress-ex'; render(); };
@@ -1073,7 +1074,7 @@
     const head = document.createElement('div');
     head.className = 'session-head';
     head.innerHTML = `<span class="session-split">${SPLIT_EMOJI[s.split]} ${splitLabel(s.split, s.variant)}</span>
-      <span class="session-meta"><span class="session-date">${formatDate(s.date)}</span><span class="session-date">${totalSets} set${totalSets === 1 ? '' : 's'}</span><span class="session-volume">${Math.round(dispW(sessionVolume(s))).toLocaleString('en-US')} ${unit}</span></span>`;
+      <span class="session-meta"><span class="session-date">${formatDate(s.date)}</span><span class="session-date">${totalSets} set${totalSets === 1 ? '' : 's'}</span><span class="session-volume">${dispTotal(sessionVolume(s)).toLocaleString('en-US')} ${unit}</span></span>`;
     head.onclick = () => {
       expandedHistoryId = expandedHistoryId === s.id ? null : s.id;
       editingSet = null; historyEditId = null;
@@ -1195,14 +1196,17 @@
   const hueIn = document.getElementById('hueIn');
   const pickHex = document.getElementById('pickHex');
 
-  function paintSettings() {
-    variantInputs.forEach(cb => { cb.checked = variantPref.enabled(cb.dataset.variantSplit); });
-    [...appearanceEl.children].forEach(b => b.classList.toggle('on', b.dataset.v === settings.appearance));
-    [...unitSegEl.children].forEach(b => b.classList.toggle('on', b.dataset.u === unit));
+  function prefillPlates() {
     const inventory = platePref.get(unit);
     document.getElementById('barWeightIn').value = inventory.bar;
     document.getElementById('platesIn').value = inventory.plates.join(', ');
     settingsEl.querySelector('[data-plate-unit]').textContent = unit;
+  }
+
+  function paintSettings() {
+    variantInputs.forEach(cb => { cb.checked = variantPref.enabled(cb.dataset.variantSplit); });
+    [...appearanceEl.children].forEach(b => b.classList.toggle('on', b.dataset.v === settings.appearance));
+    [...unitSegEl.children].forEach(b => b.classList.toggle('on', b.dataset.u === unit));
     const presets = allPresets();
     swatchesEl.innerHTML = '';
     Object.keys(presets).forEach(key => {
@@ -1271,6 +1275,7 @@
       if (unit === b.dataset.u) return;
       unit = unitPref.set(b.dataset.u);
       draft = {}; // pending draft values were in the old unit — re-seed from defaults
+      prefillPlates();
       paintSettings(); render();
     };
   });
@@ -1282,7 +1287,7 @@
     }
     paintSettings(); render();
   };
-  document.getElementById('settingsBtn').onclick = () => { paintSettings(); settingsEl.hidden = false; };
+  document.getElementById('settingsBtn').onclick = () => { prefillPlates(); paintSettings(); settingsEl.hidden = false; };
   document.getElementById('closeSettings').onclick = () => { settingsEl.hidden = true; };
   settingsEl.onclick = (e) => { if (e.target === settingsEl) settingsEl.hidden = true; };
   document.getElementById('clearHistory').onclick = () => {

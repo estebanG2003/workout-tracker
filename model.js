@@ -718,7 +718,9 @@
     return counts;
   }
 
-  function plateMilestones(lbs) { return [135, 225, 315, 405].filter(w => lbs >= w).length; }
+  function plateMilestones(weight, unit = 'lbs') {
+    return (unit === 'kg' ? [60, 100, 140, 180] : [135, 225, 315, 405]).filter(w => weight >= w).length;
+  }
 
   function bigThreeTotal(sessions, isBarbell) {
     const out = { squat: null, bench: null, deadlift: null, total: null };
