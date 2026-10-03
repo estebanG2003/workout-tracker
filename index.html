@@ -131,6 +131,8 @@
     .ref-val { display: block; font-size: 21px; color: var(--text); font-weight: 800;
       font-variant-numeric: tabular-nums; margin-top: 2px; }
     .ex-head-right { display: flex; align-items: center; gap: 8px; }
+    .barbell-toggle { margin-top: 12px; min-height: 40px; }
+    .plates-line, .warmup-line { font-size: 13px; color: var(--text-dim); margin-top: 8px; }
 
     /* ---------- Editable set rows (active session + history) ---------- */
     .set-list { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 2px; }
@@ -444,6 +446,7 @@
   /* View layer. Core data model lives in model.js (shared with tests). */
   const { VERSION, SPLITS, SEED_EXERCISES, createStore, createExercises, createRoster, createUnitPref,
           createActiveSession, resumeOrFinish,
+          createBarbellPref, createPlatePref, platesPerSide, nearestLoadable, warmupSets,
           toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit,
           sortSessionsDesc, formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
           exportReminderDue, toJSON, fromJSON, mergeSessions,
@@ -454,6 +457,8 @@
   const unitPref = createUnitPref(localStorage);
   const exportTracker = createExportTracker(localStorage);
   const activeStore = createActiveSession(localStorage); // crash/forgot-to-Finish safety net
+  const barbellPref = createBarbellPref(localStorage);
+  const platePref = createPlatePref(localStorage);
   store.load();
 
   /* Current display unit ('lbs' | 'kg'). Weights are stored canonically in lbs;
@@ -765,6 +770,7 @@
 
     if (expanded) {
       const d = draftFor(name);
+      const barbell = barbellPref.is(name);
       const editingHere = editingSet && editingSet.scope === 'active' && editingSet.exercise === name ? editingSet : null;
       const flashHere = justLoggedExercise === name;
       if (flashHere) justLoggedExercise = null; // one-shot: consume the flag for this render pass
@@ -773,6 +779,7 @@
       body.className = 'ex-body';
       body.innerHTML = `
         <div class="ref-last">Last time<span class="ref-val">${lastSets.length ? fmtSetsU(lastSets) : 'No previous data'}</span></div>
+        <button class="edit-toggle barbell-toggle${barbell ? ' on' : ''}" data-barbell-toggle aria-pressed="${barbell}">Barbell</button>
         ${todaySets.length ? `<div class="ex-ref">Today</div><div class="set-list" data-set-list>${setRowsHtml(todaySets, editingHere, flashHere ? todaySets.length - 1 : null)}</div>` : ''}
         <div class="ctrl-row${weightIrrelevant() ? ' muted-row' : ''}" id="weightRow">
           <div class="nudge-btns">
@@ -788,6 +795,8 @@
             <button data-wadj="10">+10</button>
           </div>
         </div>
+        ${barbell ? '<div class="plates-line" aria-live="polite"></div>' : ''}
+        <div class="warmup-line" aria-live="polite"></div>
         <div class="ctrl-row">
           <span class="ctrl-label">Reps</span>
           <div class="stepper">
@@ -799,6 +808,31 @@
         <button class="log-btn" id="logBtn">Log Set</button>`;
       li.appendChild(body);
 
+      body.querySelector('[data-barbell-toggle]').onclick = () => {
+        barbellPref.set(name, !barbell); render();
+      };
+      /* Draft weights already use the display unit. Update only the guidance
+         nodes so typing keeps both the weight input and its focus intact. */
+      const updateGuidance = () => {
+        const { bar, plates } = platePref.get(unit);
+        if (barbell) {
+          const perSide = platesPerSide(d.weight, bar, plates);
+          let text;
+          if (d.weight < bar) text = `Below the bar (${bar} ${unit})`;
+          else if (perSide) text = perSide.length ? 'Per side: ' + perSide.join(' + ') : 'Bar only';
+          else {
+            const near = nearestLoadable(d.weight, bar, plates);
+            text = `Not loadable: ${near.below} or ${near.above}`;
+          }
+          body.querySelector('.plates-line').textContent = text;
+        }
+        const warmups = warmupSets(d.weight, barbell ? { bar, plates } : { step: 2.5 });
+        const line = body.querySelector('.warmup-line');
+        line.textContent = warmups.length ? 'Warm-up: ' + warmups.map(s => `${s.weight}×${s.reps}`).join(', ') : '';
+        line.hidden = !warmups.length;
+      };
+      updateGuidance();
+
       const setListEl = body.querySelector('[data-set-list]');
       if (setListEl) wireSetList(setListEl, name, 'active');
 
@@ -808,12 +842,14 @@
       wInput.oninput = () => {
         d.weight = Math.max(0, Math.round((parseFloat(wInput.value) || 0) * 10) / 10);
         body.querySelector('#weightRow').classList.toggle('muted-row', weightIrrelevant());
+        updateGuidance();
       };
       body.querySelectorAll('[data-wadj]').forEach(b => {
         b.onclick = () => {
           d.weight = Math.max(0, Math.round((d.weight + parseFloat(b.dataset.wadj)) * 10) / 10);
           wInput.value = d.weight;
           body.querySelector('#weightRow').classList.toggle('muted-row', weightIrrelevant());
+          updateGuidance();
         };
       });
       body.querySelectorAll('[data-radj]').forEach(b => {
