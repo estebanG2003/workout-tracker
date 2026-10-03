@@ -1,0 +1,181 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>UI test v2</title></head>
+<body data-result="">
+<script>
+/* v2 UI: barbell plates, warm-ups, PR badges, session volume, the Progress
+   screens (heatmap, weekly volume, per-exercise chart + rep PRs, milestones)
+   and the plate inventory in Settings. Seeds its own history first, so it is
+   independent of test-ui.html. Run via: node run-ui-tests.js */
+const results = [];
+function ok(cond, msg) { results.push({ pass: !!cond, msg }); }
+function finish() {
+  const pass = results.filter(r => r.pass).length;
+  const fail = results.filter(r => !r.pass);
+  document.body.setAttribute('data-result', JSON.stringify({ pass, fail: fail.length, failMsgs: fail.map(f => f.msg) }));
+  document.title = fail.length === 0 ? 'ALL PASS' : 'FAILURES';
+}
+function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+
+const DAY = 24 * 60 * 60 * 1000;
+const now = Date.now();
+const H = [
+  { id: 'h1', date: now - 10 * DAY, split: 'push', entries: [
+    { exercise: 'Bench Press', sets: [{ weight: 100, reps: 10 }, { weight: 100, reps: 8 }] },
+    { exercise: 'Dips', sets: [{ weight: 0, reps: 12 }] } ] },
+  { id: 'h2', date: now - 3 * DAY, split: 'legs', entries: [
+    { exercise: 'Squat', sets: [{ weight: 225, reps: 5 }, { weight: 245, reps: 3 }] } ] },
+  { id: 'h3', date: now - 1 * DAY, split: 'push', entries: [
+    { exercise: 'bench press', sets: [{ weight: 105, reps: 10 }] } ] },
+];
+localStorage.clear();
+localStorage.setItem('workout-app-v1', JSON.stringify(H));
+localStorage.setItem('workout-barbell-v1', JSON.stringify(['squat']));
+
+const iframe = document.createElement('iframe');
+iframe.style.cssText = 'width:390px;height:844px;';
+iframe.src = 'index.html';
+document.body.appendChild(iframe);
+
+iframe.addEventListener('load', () => {
+  const w = iframe.contentWindow, d = iframe.contentDocument;
+  w.prompt = () => null;
+  w.confirm = () => true;
+  w.alert = (msg) => { w.__lastAlert = msg; };
+  const M = w.WorkoutModel;
+  const $ = s => d.querySelector(s);
+  const $$ = s => [...d.querySelectorAll(s)];
+  const title = () => d.getElementById('screenTitle').textContent;
+  const txt = el => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
+  const row = name => $$('.ex-row').find(r => r.querySelector('.ex-name').textContent === name);
+  const body = name => row(name) && row(name).querySelector('.ex-body');
+
+  setTimeout(() => {
+    try {
+      // ---- Progress screen (items 3, 5, 7) ----
+      ok(!!$('#progressLink'), 'home has a #progressLink');
+      click($('#progressLink'));
+      ok(title() === 'Progress', 'Progress screen title, got ' + title());
+      ok(!d.getElementById('backBtn').hidden, 'back button visible on Progress');
+
+      const cells = $$('.heatmap .hm-cell');
+      ok(cells.length === 112, 'heatmap has 16 weeks x 7 days = 112 cells, got ' + cells.length);
+      const onDates = cells.filter(c => c.classList.contains('on')).map(c => c.dataset.date).sort();
+      const wantDates = H.map(s => M.localDateStr(s.date)).sort();
+      ok(JSON.stringify(onDates) === JSON.stringify(wantDates), 'heatmap lights exactly the 3 session days, got ' + onDates.join(','));
+      ok(cells.filter(c => c.classList.contains('on')).every(c => c.dataset.count === '1'), 'lit cells carry data-count="1"');
+      const lastCell = cells[cells.length - 1];
+      ok(lastCell.dataset.date === M.localDateStr(M.weekStart(now) + 6 * DAY + 3600 * 1000),
+         'heatmap ends on the Sunday of the current week, got ' + lastCell.dataset.date);
+      const today = cells.find(c => c.dataset.date === M.localDateStr(now));
+      ok(!!today, 'heatmap includes today');
+
+      const bars = $$('svg.weekly-volume rect.wv-bar');
+      const wantBars = M.weeklyVolume(H).slice(-12).length;
+      ok(bars.length === wantBars, `weekly volume chart has one bar per week (${wantBars}), got ${bars.length}`);
+
+      // ---- Milestones (item 14): squat is flagged barbell in seed, best 245 ----
+      const ms = $('.milestones');
+      ok(!!ms, '.milestones shows when a barbell-flagged lift has data');
+      ok(ms && $$('.milestones .milestone').some(m => /squat/i.test(m.textContent) && /2 plates/.test(m.textContent)),
+         'Squat 245 shows a "2 plates" milestone, got: ' + txt(ms));
+      ok(ms && !/total/i.test(ms.textContent), 'no big-three total without all three lifts');
+
+      // ---- Exercise list, newest first, case forks merged ----
+      const exBtns = $$('.prog-ex-list button.prog-ex');
+      ok(JSON.stringify(exBtns.map(b => b.dataset.key)) === JSON.stringify(['bench press', 'squat', 'dips']),
+         'exercise list: one per exerciseKey, most recently trained first, got ' + exBtns.map(b => b.dataset.key).join('|'));
+      ok(txt(exBtns[0]).includes('bench press'), 'list shows the most recent spelling of a forked name, got ' + txt(exBtns[0]));
+
+      // ---- Exercise detail (items 3, 6) ----
+      click(exBtns[0]);
+      ok(title() === 'bench press', 'detail title is the display name, got ' + title());
+      ok($$('svg.e1rm-chart circle.pt').length === 2, 'chart has one point per session (2), got ' + $$('svg.e1rm-chart circle.pt').length);
+      ok(!!$('svg.e1rm-chart polyline'), 'chart draws a polyline');
+      ok(/1RM/.test(txt($('.chart-label'))), 'weighted exercise chart is labelled Est. 1RM, got ' + txt($('.chart-label')));
+      ok(txt($('.pr-e1rm')).includes('140'), 'best est. 1RM is 140 (105x10), got ' + txt($('.pr-e1rm')));
+      const prRows = $$('.pr-table tr[data-reps]');
+      ok(JSON.stringify(prRows.map(r => r.dataset.reps)) === '["8","10"]', 'rep PR rows for 8 and 10 reps, ascending, got ' + prRows.map(r => r.dataset.reps));
+      ok(prRows[1] && txt(prRows[1]).includes('105'), '10-rep PR is 105, got ' + txt(prRows[1]));
+
+      click(d.getElementById('backBtn'));
+      ok(title() === 'Progress', 'back from detail returns to Progress, got ' + title());
+      click($$('.prog-ex-list button.prog-ex').find(b => b.dataset.key === 'dips'));
+      ok(/reps/i.test(txt($('.chart-label'))), 'bodyweight exercise charts best reps, got ' + txt($('.chart-label')));
+      ok($$('svg.e1rm-chart circle.pt').length === 1, 'dips chart has 1 point');
+      click(d.getElementById('backBtn'));
+      click(d.getElementById('backBtn'));
+      ok(title() === 'Workout', 'back from Progress returns home, got ' + title());
+
+      // ---- History: per-session volume (item 7) ----
+      click(d.getElementById('historyLink'));
+      const vols = $$('.session-card .session-volume').map(txt);
+      ok(vols.includes('1,800 lbs') && vols.includes('1,050 lbs'), 'history cards show session volume, got ' + vols.join(' | '));
+      click(d.getElementById('backBtn'));
+
+      // ---- Active session: warm-ups (item 4), plates (item 1), PR badge (item 6) ----
+      click($$('.split-btn').find(b => b.dataset.split === 'push'));
+      click(row('bench press').querySelector('.ex-head'));
+      let b = body('bench press');
+      ok(!!b.querySelector('[data-barbell-toggle]'), 'expanded exercise has a [data-barbell-toggle]');
+      ok(!b.querySelector('[data-barbell-toggle]').classList.contains('on'), 'barbell is off by default');
+      ok(!b.querySelector('.plates-line'), 'no plates line while barbell is off');
+      ok(txt(b.querySelector('.warmup-line')) === 'Warm-up: 52.5×8, 77.5×4', 'non-barbell warm-up for 105, got ' + txt(b.querySelector('.warmup-line')));
+
+      click(b.querySelector('[data-barbell-toggle]'));
+      b = body('bench press');
+      ok(!!b, 'exercise stays expanded after toggling barbell');
+      ok(b.querySelector('[data-barbell-toggle]').classList.contains('on'), 'barbell toggle shows on');
+      ok(JSON.parse(w.localStorage.getItem('workout-barbell-v1')).includes('bench press'), 'barbell flag persisted by exerciseKey');
+      ok(txt(b.querySelector('.plates-line')) === 'Per side: 25 + 5', '105 on a 45 bar = 25 + 5 per side, got ' + txt(b.querySelector('.plates-line')));
+      ok(txt(b.querySelector('.warmup-line')) === 'Warm-up: 45×10, 60×3, 80×2', 'barbell warm-up for 105, got ' + txt(b.querySelector('.warmup-line')));
+
+      click(b.querySelector('[data-wadj="10"]'));
+      ok(txt(b.querySelector('.plates-line')) === 'Per side: 35', 'plates line updates live on a nudge (115), got ' + txt(b.querySelector('.plates-line')));
+      const wIn = b.querySelector('#wVal');
+      wIn.value = '116'; wIn.dispatchEvent(new Event('input', { bubbles: true }));
+      ok(txt(b.querySelector('.plates-line')) === 'Not loadable: 115 or 120', 'plates line updates live on typing (116), got ' + txt(b.querySelector('.plates-line')));
+      wIn.value = '45'; wIn.dispatchEvent(new Event('input', { bubbles: true }));
+      ok(txt(b.querySelector('.plates-line')) === 'Bar only', '45 = bar only, got ' + txt(b.querySelector('.plates-line')));
+      ok(!b.querySelector('.warmup-line') || b.querySelector('.warmup-line').hidden || txt(b.querySelector('.warmup-line')) === '',
+         'no warm-up line when the working weight is the bar');
+      wIn.value = '115'; wIn.dispatchEvent(new Event('input', { bubbles: true }));
+
+      click(b.querySelector('#logBtn'));                    // 115 x 10 -> e1rm 153.3 > 140: PR
+      b = body('bench press');
+      ok(b.querySelectorAll('.set-row .pr-badge').length === 1, 'a set beating the best prior est. 1RM gets a .pr-badge');
+      click(b.querySelector('[data-radj="-1"]'));
+      click(b.querySelector('[data-radj="-1"]'));           // 115 x 8 -> 145.7, below today's 153.3
+      click(b.querySelector('#logBtn'));
+      b = body('bench press');
+      ok(b.querySelectorAll('.set-row').length === 2, 'two sets logged today');
+      ok(b.querySelectorAll('.set-row .pr-badge').length === 1, 'a set that does not beat earlier sets TODAY is not a PR');
+
+      click(d.getElementById('finishBtn'));
+      ok(title() === 'Workout', 'finished back to home');
+
+      // ---- Settings: plate inventory (item 1) ----
+      click(d.getElementById('settingsBtn'));
+      const barIn = d.getElementById('barWeightIn'), platesIn = d.getElementById('platesIn');
+      ok(!!barIn && !!platesIn && !!d.getElementById('savePlatesBtn'), 'settings has #barWeightIn, #platesIn, #savePlatesBtn');
+      ok(barIn.value === '45' && platesIn.value.replace(/\s/g, '') === '45,35,25,10,5,2.5', 'inventory fields prefilled with the defaults, got ' + barIn.value + ' / ' + platesIn.value);
+      platesIn.value = '';
+      click(d.getElementById('savePlatesBtn'));
+      ok(/plate/i.test(w.__lastAlert || ''), 'saving an empty plate list alerts, got ' + w.__lastAlert);
+      barIn.value = '35'; platesIn.value = '45, 25';
+      click(d.getElementById('savePlatesBtn'));
+      ok(JSON.stringify(M.createPlatePref(w.localStorage).get('lbs')) === '{"bar":35,"plates":[45,25]}', 'inventory saved for the current unit');
+
+      click($$('.split-btn').find(b => b.dataset.split === 'push'));
+      click(row('bench press').querySelector('.ex-head'));
+      b = body('bench press');
+      const wIn2 = b.querySelector('#wVal');
+      wIn2.value = '105'; wIn2.dispatchEvent(new Event('input', { bubbles: true }));
+      ok(txt(b.querySelector('.plates-line')) === 'Not loadable: 85 or 125', 'plates line uses the saved inventory (35 bar, 45/25), got ' + txt(b.querySelector('.plates-line')));
+    } catch (err) {
+      ok(false, 'EXCEPTION: ' + err.message);
+    }
+    finish();
+  }, 150);
+});
+</script>
+</body></html>
