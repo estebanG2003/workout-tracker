@@ -441,6 +441,8 @@
         <button class="remove-custom" id="importJsonBtn" style="margin-top:10px;">⬆ Import JSON backup</button>
         <input type="file" id="importFileInput" accept="application/json,.json" hidden>
         <p class="set-hint">Unlike the markdown export, a JSON backup can be restored later — importing merges sessions back in without duplicating what's already here.</p>
+        <button class="remove-custom" id="importCsvBtn" style="margin-top:10px;">Import from Hevy or Strong</button>
+        <input type="file" id="importCsvInput" accept=".csv,text/csv" hidden>
       </div>
 
       <div class="set-section">
@@ -497,7 +499,7 @@
           exerciseKey, exerciseHistory, repPRs,
           toDisplayWeight, toCanonicalWeight, fmtWeight, formatSetsInUnit, LBS_PER_KG,
           sortSessionsDesc, formatSets, localDateStr, sessionsAfter, toMarkdown, createExportTracker,
-          exportReminderDue, toJSON, fromJSON, mergeSessions,
+          exportReminderDue, toJSON, fromJSON, mergeSessions, importWorkoutCSV,
           hexToRgb, rgbToHex, derivePreset, hsvToRgb, rgbToHsv } = WorkoutModel;
   const store = createStore(localStorage);
   const exercises = createExercises(localStorage);      // legacy seed source (no-history splits)
@@ -1322,6 +1324,45 @@
       window.alert(added > 0
         ? `Imported ${added} new session${added === 1 ? '' : 's'}.`
         : 'Nothing new to import — all sessions in that backup are already here.');
+    };
+    reader.readAsText(file);
+  };
+
+  /* ---------- Workout CSV import (Hevy / Strong) ---------- */
+  const importCsvInput = document.getElementById('importCsvInput');
+  document.getElementById('importCsvBtn').onclick = () => importCsvInput.click();
+  importCsvInput.onchange = () => {
+    const file = importCsvInput.files[0];
+    importCsvInput.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let imported;
+      try {
+        imported = importWorkoutCSV(reader.result, { unit });
+        if (imported.unmatched > 0) {
+          const count = imported.unmatched;
+          const answer = window.prompt(`${count} workout${count === 1 ? " doesn't" : "s don't"} say push, pull or legs in its name. Import as which split? (push / pull / legs, or leave blank to skip)`);
+          const fallbackSplit = (answer || '').trim().toLowerCase();
+          if (SPLITS.includes(fallbackSplit)) {
+            imported = importWorkoutCSV(reader.result, { unit, fallbackSplit });
+          }
+        }
+      } catch (err) { window.alert(err.message); return; }
+      const before = store.sessions.length;
+      store.sessions = mergeSessions(store.sessions, imported.sessions);
+      store.save();
+      const added = store.sessions.length - before;
+      settingsEl.hidden = true;
+      render();
+      const source = imported.format === 'hevy' ? 'Hevy' : 'Strong';
+      let message = added > 0
+        ? `Imported ${added} new session${added === 1 ? '' : 's'} from ${source}.`
+        : `Nothing new to import from ${source}.`;
+      if (imported.unmatched > 0) {
+        message += ` ${imported.unmatched} workout${imported.unmatched === 1 ? '' : 's'} skipped (no split).`;
+      }
+      window.alert(message);
     };
     reader.readAsText(file);
   };
