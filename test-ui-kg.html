@@ -1,0 +1,69 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>UI test kg + settings</title></head>
+<body data-result="">
+<script>
+/* Progress and History in kg, and Settings edits surviving other Settings
+   actions. From the review of the v2 UI. Run via: node run-ui-tests.js */
+const results = [];
+function ok(cond, msg) { results.push({ pass: !!cond, msg }); }
+function finish() {
+  const pass = results.filter(r => r.pass).length;
+  const fail = results.filter(r => !r.pass);
+  document.body.setAttribute('data-result', JSON.stringify({ pass, fail: fail.length, failMsgs: fail.map(f => f.msg) }));
+  document.title = fail.length === 0 ? 'ALL PASS' : 'FAILURES';
+}
+function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+
+const DAY = 24 * 60 * 60 * 1000, now = Date.now();
+localStorage.clear();
+localStorage.setItem('workout-app-v1', JSON.stringify([
+  { id: 'b', date: now - 2 * DAY, split: 'push', entries: [{ exercise: 'Bench Press', sets: [{ weight: 105, reps: 10 }] }] },
+  { id: 's', date: now - 1 * DAY, split: 'legs', entries: [{ exercise: 'Squat', sets: [{ weight: 220.5, reps: 1 }] }] },
+]));
+localStorage.setItem('workout-barbell-v1', JSON.stringify(['squat']));
+localStorage.setItem('workout-unit-v1', 'kg');
+
+const iframe = document.createElement('iframe');
+iframe.style.cssText = 'width:390px;height:844px;';
+iframe.src = 'index.html';
+document.body.appendChild(iframe);
+
+iframe.addEventListener('load', () => {
+  const w = iframe.contentWindow, d = iframe.contentDocument;
+  w.prompt = () => null; w.confirm = () => true; w.alert = (m) => { w.__lastAlert = m; };
+  const $$ = s => [...d.querySelectorAll(s)];
+  const txt = el => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
+
+  setTimeout(() => {
+    try {
+      // ---- kg volume rounds once: 105 lbs x 10 = 1050 lbs = 476.27 kg -> 476 ----
+      click(d.getElementById('historyLink'));
+      const vols = $$('.session-card .session-volume').map(txt);
+      ok(vols.includes('476 kg'), 'kg session volume converts the total once and rounds once (476, not 477), got ' + vols.join(' | '));
+      ok(vols.includes('100 kg'), '220.5 lbs x 1 shows as 100 kg, got ' + vols.join(' | '));
+      click(d.getElementById('backBtn'));
+
+      // ---- kg plate milestones: 100 kg on a 20 kg bar = 2 x 20 kg plates per side ----
+      click(d.getElementById('progressLink'));
+      const ms = $$('.milestones .milestone').map(txt);
+      ok(ms.some(m => /squat/i.test(m) && /2 plates/.test(m)), 'a 100 kg squat is a 2-plate milestone in kg, got: ' + ms.join(' | '));
+      click(d.getElementById('backBtn'));
+
+      // ---- unsaved plate inventory survives an appearance or theme change ----
+      click(d.getElementById('settingsBtn'));
+      const platesIn = d.getElementById('platesIn'), barIn = d.getElementById('barWeightIn');
+      barIn.value = '15'; platesIn.value = '20, 10';
+      click(d.querySelector('#appearance [data-v="dark"]'));
+      ok(d.getElementById('barWeightIn').value === '15' && d.getElementById('platesIn').value === '20, 10',
+         'changing appearance keeps unsaved inventory edits, got ' + d.getElementById('barWeightIn').value + ' / ' + d.getElementById('platesIn').value);
+      // switching unit DOES re-prefill: the fields always describe the current unit
+      click(d.querySelector('#unitSeg [data-u="lbs"]'));
+      ok(d.getElementById('barWeightIn').value === '45', 'switching unit re-prefills the inventory for the new unit, got ' + d.getElementById('barWeightIn').value);
+    } catch (err) {
+      ok(false, 'EXCEPTION: ' + err.message);
+    }
+    finish();
+  }, 150);
+});
+</script>
+</body></html>

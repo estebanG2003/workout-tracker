@@ -215,5 +215,12 @@ console.log('review regressions (Codex review of batch A)');
      'equal rounded estimates are not a PR');
 }
 
+console.log('plateMilestones in kg (review of the v2 UI)');
+{
+  ok(M.plateMilestones(135) === 1 && M.plateMilestones(135, 'lbs') === 1, 'lbs is the default and unchanged');
+  ok(M.plateMilestones(59.5, 'kg') === 0 && M.plateMilestones(60, 'kg') === 1, 'kg: 60 = 20 kg bar + one 20 kg plate per side');
+  ok(M.plateMilestones(100, 'kg') === 2 && M.plateMilestones(140, 'kg') === 3 && M.plateMilestones(200, 'kg') === 4, 'kg: 100 / 140 / 180+');
+}
+
 console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + `  (${pass} passed, ${fail} failed)`);
 process.exit(fail === 0 ? 0 : 1);
