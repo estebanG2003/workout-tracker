@@ -562,7 +562,7 @@
   let expandedExercise = null; // name of exercise expanded in the active view
   let draft = {};              // { [exercise]: { weight, reps } } — pending values before Log Set
   let expandedHistoryId = null;
-  /* { scope, exercise, index } | null — scope is 'active' for the in-progress
+  /* { scope, exercise, index, weight?, reps? } | null — scope is 'active' for the in-progress
      session, or a finished session's id for a history card. Only one set can
      be mid-edit at a time across the whole app. */
   let editingSet = null;
@@ -715,9 +715,9 @@
     return sets.map((set, i) => {
       if (editing && editing.index === i) {
         return `<div class="set-row editing" data-i="${i}">
-          <input type="number" inputmode="decimal" class="set-in edit-w" value="${dispW(set.weight)}" step="0.5" min="0">
+          <input type="number" inputmode="decimal" class="set-in edit-w" value="${editing.weight !== undefined ? editing.weight : dispW(set.weight)}" step="0.5" min="0">
           <span class="set-x">×</span>
-          <input type="number" inputmode="numeric" class="set-in edit-r" value="${set.reps}" min="1">
+          <input type="number" inputmode="numeric" class="set-in edit-r" value="${editing.reps !== undefined ? editing.reps : set.reps}" min="1">
           <button class="set-icon-btn save" data-save-set aria-label="save set">✓</button>
           <button class="set-icon-btn" data-cancel-set aria-label="cancel edit">✕</button>
         </div>`;
@@ -750,6 +750,8 @@
     });
     const editingRow = container.querySelector('.set-row.editing');
     if (editingRow) {
+      editingRow.querySelector('.edit-w').oninput = e => { editingSet.weight = e.target.value; };
+      editingRow.querySelector('.edit-r').oninput = e => { editingSet.reps = e.target.value; };
       editingRow.querySelector('[data-save-set]').onclick = () => {
         const w = parseFloat(editingRow.querySelector('.edit-w').value);
         const r = parseInt(editingRow.querySelector('.edit-r').value, 10);

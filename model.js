@@ -73,9 +73,10 @@
          `exercise`, excluding a session id (the in-progress one, which
          isn't in `this.sessions` yet anyway — belt-and-suspenders). */
       lastSessionFor(exercise, excludeId) {
+        const key = exerciseKey(exercise);
         const matches = this.sessions
           .filter(s => s.id !== excludeId)
-          .filter(s => s.entries.some(en => en.exercise === exercise))
+          .filter(s => s.entries.some(en => exerciseKey(en.exercise) === key))
           .sort((a, b) => b.date - a.date);
         return matches[0] || null;
       },
@@ -84,7 +85,8 @@
       lastSetsFor(exercise, excludeId) {
         const s = this.lastSessionFor(exercise, excludeId);
         if (!s) return [];
-        const entry = s.entries.find(en => en.exercise === exercise);
+        const key = exerciseKey(exercise);
+        const entry = s.entries.find(en => exerciseKey(en.exercise) === key);
         return entry ? entry.sets : [];
       },
 
@@ -435,14 +437,21 @@
 
   function isSessionShaped(s) {
     return s && typeof s === 'object' && typeof s.id === 'string' &&
-      typeof s.date === 'number' && typeof s.split === 'string' && Array.isArray(s.entries);
+      Number.isFinite(s.date) && s.date >= 0 && !Number.isNaN(new Date(s.date).getTime()) &&
+      typeof s.split === 'string' && Array.isArray(s.entries) &&
+      s.entries.every(en => en && typeof en.exercise === 'string' && en.exercise.trim() &&
+        Array.isArray(en.sets) && en.sets.every(set => set &&
+          Number.isFinite(set.weight) && set.weight >= 0 && set.weight <= MAX_WEIGHT &&
+          Number.isInteger(set.reps) && set.reps >= 1 && set.reps <= MAX_REPS));
   }
 
   function fromJSON(text) {
     const parsed = JSON.parse(text); // throws on invalid JSON, by design
-    if (!Array.isArray(parsed) || !parsed.every(isSessionShaped)) {
+    if (!Array.isArray(parsed)) {
       throw new Error('Not a valid workout backup: expected an array of sessions.');
     }
+    const bad = parsed.findIndex(s => !isSessionShaped(s));
+    if (bad !== -1) throw new Error(`Not a valid workout backup: session ${bad} is invalid.`);
     return parsed;
   }
 
