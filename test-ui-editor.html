@@ -1,0 +1,84 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>UI test editor</title></head>
+<body data-result="">
+<script>
+/* An open set editor keeps what was typed into it when something else
+   repaints the screen (Barbell toggle, saving the plate inventory).
+   Run via: node run-ui-tests.js */
+const results = [];
+function ok(cond, msg) { results.push({ pass: !!cond, msg }); }
+function finish() {
+  const pass = results.filter(r => r.pass).length;
+  const fail = results.filter(r => !r.pass);
+  document.body.setAttribute('data-result', JSON.stringify({ pass, fail: fail.length, failMsgs: fail.map(f => f.msg) }));
+  document.title = fail.length === 0 ? 'ALL PASS' : 'FAILURES';
+}
+function click(el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }
+
+localStorage.clear();
+localStorage.setItem('workout-app-v1', JSON.stringify([
+  { id: 'h1', date: Date.now() - 86400000, split: 'push', entries: [
+    { exercise: 'Bench Press', sets: [{ weight: 100, reps: 10 }] } ] },
+]));
+
+const iframe = document.createElement('iframe');
+iframe.style.cssText = 'width:390px;height:844px;';
+iframe.src = 'index.html';
+document.body.appendChild(iframe);
+
+iframe.addEventListener('load', () => {
+  const w = iframe.contentWindow, d = iframe.contentDocument;
+  w.prompt = () => null;
+  w.confirm = () => true;
+  w.alert = (msg) => { w.__lastAlert = msg; };
+  const $$ = s => [...d.querySelectorAll(s)];
+  const row = name => $$('.ex-row').find(r => r.querySelector('.ex-name').textContent === name);
+  const body = name => row(name) && row(name).querySelector('.ex-body');
+  const type = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+
+  setTimeout(() => {
+    try {
+      click($$('.split-btn').find(b => b.dataset.split === 'push'));
+      click(row('Bench Press').querySelector('.ex-head'));
+      click(body('Bench Press').querySelector('#logBtn'));           // logs 100 x 10, opens no editor yet
+      let b = body('Bench Press');
+      click(b.querySelector('[data-edit-set="0"]'));
+      b = body('Bench Press');
+      type(b.querySelector('.edit-w'), '77');
+      type(b.querySelector('.edit-r'), '6');
+
+      click(b.querySelector('[data-barbell-toggle]'));
+      b = body('Bench Press');
+      ok(!!b.querySelector('.set-row.editing'), 'editor stays open after toggling Barbell');
+      ok(b.querySelector('.edit-w') && b.querySelector('.edit-w').value === '77', 'typed weight survives the Barbell toggle, got ' + (b.querySelector('.edit-w') || {}).value);
+      ok(b.querySelector('.edit-r') && b.querySelector('.edit-r').value === '6', 'typed reps survive the Barbell toggle, got ' + (b.querySelector('.edit-r') || {}).value);
+
+      d.getElementById('settingsBtn') && click(d.getElementById('settingsBtn'));
+      d.getElementById('barWeightIn').value = '45';
+      d.getElementById('platesIn').value = '45, 25, 10, 5';
+      click(d.getElementById('savePlatesBtn'));
+      d.getElementById('closeSettings') && click(d.getElementById('closeSettings'));
+      b = body('Bench Press');
+      ok(b && b.querySelector('.edit-w') && b.querySelector('.edit-w').value === '77', 'typed weight survives saving plates, got ' + (b && b.querySelector('.edit-w') || {}).value);
+
+      click(b.querySelector('[data-save-set]'));
+      b = body('Bench Press');
+      ok(b.querySelector('.set-row .set-txt').textContent.trim() === '77×6', 'saving after the repaints stores what was typed, got ' + b.querySelector('.set-row .set-txt').textContent);
+
+      click(b.querySelector('[data-edit-set="0"]'));
+      b = body('Bench Press');
+      ok(b.querySelector('.edit-w').value === '77', 'reopening the editor shows the stored value, not a stale draft, got ' + b.querySelector('.edit-w').value);
+      type(b.querySelector('.edit-w'), '90');
+      click(b.querySelector('[data-cancel-set]'));
+      b = body('Bench Press');
+      click(b.querySelector('[data-edit-set="0"]'));
+      b = body('Bench Press');
+      ok(b.querySelector('.edit-w').value === '77', 'cancel discards the draft: reopening shows 77, got ' + b.querySelector('.edit-w').value);
+    } catch (err) {
+      ok(false, 'EXCEPTION: ' + err.message);
+    }
+    finish();
+  }, 150);
+});
+</script>
+</body></html>

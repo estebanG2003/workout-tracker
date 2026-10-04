@@ -541,5 +541,51 @@ console.log('VERSION / index.html lockstep');
      'the on-screen badge renders the VERSION that actually loaded, not a duplicated constant');
 }
 
+console.log('fromJSON rejects hand-edited garbage instead of storing it');
+{
+  const good = { id: 'g', date: 1000, split: 'push', entries: [{ exercise: 'Bench Press', sets: [{ weight: 135, reps: 8 }] }] };
+  const withSet = set => JSON.stringify([{ ...good, entries: [{ exercise: 'Bench Press', sets: [set] }] }]);
+  const rejects = (text, msg) => {
+    let err = null;
+    try { fromJSON(text); } catch (e) { err = e; }
+    ok(err instanceof Error && /backup/i.test(err.message), msg + (err ? ' (message: ' + err.message + ')' : ' (did not throw)'));
+  };
+  ok(fromJSON(JSON.stringify([good])).length === 1, 'a clean backup still restores');
+  ok(fromJSON(withSet({ weight: 0, reps: 12 })).length === 1, 'bodyweight (weight 0) is valid');
+  ok(fromJSON(withSet({ weight: 37.5, reps: 8 })).length === 1, 'a decimal weight is valid');
+  rejects(withSet({ weight: '135', reps: 8 }), 'a string weight is rejected');
+  rejects(withSet({ weight: null, reps: 8 }), 'a null weight is rejected (JSON has no NaN; null is what NaN becomes)');
+  rejects(withSet({ weight: -5, reps: 8 }), 'a negative weight is rejected');
+  rejects(withSet({ weight: MAX_WEIGHT + 1, reps: 8 }), 'a weight above MAX_WEIGHT is rejected');
+  rejects(withSet({ weight: 135, reps: '8' }), 'string reps are rejected');
+  rejects(withSet({ weight: 135, reps: 0 }), 'zero reps are rejected');
+  rejects(withSet({ weight: 135, reps: 2.5 }), 'fractional reps are rejected');
+  rejects(withSet({ weight: 135, reps: MAX_REPS + 1 }), 'reps above MAX_REPS are rejected');
+  rejects(withSet({ weight: 135 }), 'a set missing reps is rejected');
+  rejects(JSON.stringify([{ ...good, date: 1e20 }]), 'a date outside the valid Date range is rejected');
+  rejects(JSON.stringify([{ ...good, date: -1 }]), 'a negative date is rejected');
+  rejects(JSON.stringify([{ ...good, entries: [{ exercise: '', sets: [] }] }]), 'an empty exercise name is rejected');
+  rejects(JSON.stringify([{ ...good, entries: [{ exercise: 'Bench Press' }] }]), 'an entry without a sets array is rejected');
+  rejects(JSON.stringify([good, { ...good, id: 'h', entries: [{ exercise: 'Squat', sets: [{ weight: 'heavy', reps: 5 }] }] }]),
+          'one bad session rejects the whole file (nothing half-restored)');
+}
+
+console.log('"Last time" ignores case and extra spaces in the exercise name');
+{
+  const s = createStore(memStorage()).load();
+  s.sessions = [
+    { id: 'a', date: 100, split: 'pull', entries: [{ exercise: 'Bar Curl', sets: [{ weight: 15, reps: 10 }] }] },
+    { id: 'b', date: 200, split: 'pull', entries: [{ exercise: 'Bar curl', sets: [{ weight: 20, reps: 8 }] }] },
+  ];
+  ok(JSON.stringify(s.lastSetsFor('Bar Curl')) === '[{"weight":20,"reps":8}]', 'Bar Curl finds the newer "Bar curl" session, got ' + JSON.stringify(s.lastSetsFor('Bar Curl')));
+  ok(JSON.stringify(s.lastSetsFor('bar  curl ')) === '[{"weight":20,"reps":8}]', 'extra/trailing spaces still match');
+  ok((s.lastSessionFor('BAR CURL') || {}).id === 'b', 'lastSessionFor matches by exerciseKey');
+  ok((s.lastSessionFor('Bar curl', 'b') || {}).id === 'a', 'excludeId still excludes');
+  const live = s.startSession('pull');
+  const d = s.defaultsFor(live, 'Bar Curl');
+  ok(d.weight === 20 && d.reps === 8, 'defaultsFor prefills from the case-different previous session');
+  ok(s.lastSetsFor('Hammer Curl').length === 0, 'a different exercise still finds nothing');
+}
+
 console.log('\n' + (fail === 0 ? '✅ ALL PASS' : '❌ FAILURES') + `  (${pass} passed, ${fail} failed)`);
 process.exit(fail === 0 ? 0 : 1);
